@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: jacob-frontline
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server.js --production
+    healthCheckPath: /robots.txt
