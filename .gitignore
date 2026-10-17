@@ -1,3 +1,10 @@
 tempo/.tempo/
+.tempo/
 tempo/node_modules/
 tempo/dist/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+/data/

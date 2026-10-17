@@ -1,0 +1,16 @@
+JACOB: FRONTLINE — PAGBUBUKAS NG LARO
+
+1. I-double-click ang BUKSAN-JACOB-FRONTLINE.bat.
+2. Magbubukas ang laro sa browser kapag handa na ang local server.
+3. Panatilihing bukas ang window na "Jacob Frontline Server" habang naglalaro.
+4. Para ihinto ang server, pindutin ang Ctrl+C sa server window.
+
+Sa unang bukas, mag-i-install muna ito ng kailangang packages kung wala pa ang mga ito.
+Kailangan ang Node.js; internet lang ang kailangan kung kailangan pang mag-install.
+
+Demo login:
+Username: demo
+Password: JacobDemo2026!
+
+Huwag i-double-click ang index.html. Kailangan ng laro ang local server para sa login,
+3D assets at co-op features; ang BUKSAN-JACOB-FRONTLINE.bat ang maghahanda nito.
