@@ -247,7 +247,7 @@ multiplayer.on("connection", (client, req) => {
         z: Math.max(-118, Math.min(34, finite(packet.z, client.playerState.z))),
         yaw: finite(packet.yaw, client.playerState.yaw),
         health: Math.max(0, Math.min(100, finite(packet.health, client.playerState.health))),
-        weapon: packet.weapon === "glock" ? "glock" : "m4",
+        weapon: ["m4", "glock", "ak47"].includes(packet.weapon) ? packet.weapon : "m4",
         vehicle: packet.vehicle === "apc" || packet.vehicle === "helicopter" ? packet.vehicle : null,
         parachute: Boolean(packet.parachute),
         moving: Boolean(packet.moving),

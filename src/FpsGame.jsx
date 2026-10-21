@@ -8,6 +8,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import "./fps.css";
 
 const MAG_SIZE = 30;
+const AK_MAG_SIZE = 30;
 const CANNON_MAG_SIZE = 12;
 const MISSION_TIME = 210;
 const PLAYER_EYE_HEIGHT = 1.62;
@@ -49,7 +50,7 @@ const MAPS = {
     mountain: false, containers: true, sign: "HARBOR 09 / LOADING ZONE",
   },
 };
-const INITIAL_HUD = { kills: 0, health: 100, ammo: MAG_SIZE, ammoMax: MAG_SIZE, weapon: "m4", seconds: MISSION_TIME, accuracy: 0, stamina: 100, heading: "N", radar: [], nearSupply: false, nearHouse: false, nearIntel: false, nearDefense: false, vehicleLabel: "", progress: 0, target: 20, teamSize: 1, reloading: false };
+const INITIAL_HUD = { kills: 0, health: 100, ammo: MAG_SIZE, ammoMax: MAG_SIZE, weapon: "m4", seconds: MISSION_TIME, accuracy: 0, stamina: 100, heading: "N", radar: [], nearSupply: false, nearHouse: false, nearIntel: false, nearDefense: false, nearWeapon: "", vehicleLabel: "", progress: 0, target: 20, teamSize: 1, reloading: false };
 
 function makeSurfaceTexture(kind, seed = 1) {
   const size = 512;
@@ -575,6 +576,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     const effects = [];
     const smoke = [];
     const enemies = [];
+    const weaponDrops = [];
     const remotePlayers = new Map();
     const squadBots = [];
     let soldierTemplate = null;
@@ -983,16 +985,26 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
 
     const enemyMaterials = {
       uniform: createCamouflageMaterial(),
+      friendlyUniform: (() => { const material = createCamouflageMaterial(); material.color.setHex(0xb3cbd0); return material; })(),
       vest: new THREE.MeshStandardMaterial({ color: 0x393b34, roughness: 0.94 }),
+      friendlyVest: new THREE.MeshStandardMaterial({ color: 0x435a55, roughness: 0.94 }),
       strap: new THREE.MeshStandardMaterial({ color: 0x7c745d, roughness: 0.9 }),
+      friendlyStrap: new THREE.MeshStandardMaterial({ color: 0x788b82, roughness: 0.92 }),
       pouch: new THREE.MeshStandardMaterial({ color: 0x5a5649, roughness: 0.9 }),
+      friendlyPouch: new THREE.MeshStandardMaterial({ color: 0x62786e, roughness: 0.92 }),
       pack: new THREE.MeshStandardMaterial({ color: 0x4b5144, roughness: 0.98 }),
+      friendlyPack: new THREE.MeshStandardMaterial({ color: 0x4a625a, roughness: 0.98 }),
+      vestBack: new THREE.MeshStandardMaterial({ color: 0x30382f, roughness: 0.98 }),
+      friendlyVestBack: new THREE.MeshStandardMaterial({ color: 0x344541, roughness: 0.98 }),
+      friendlyPatch: new THREE.MeshStandardMaterial({ color: 0x9fb5aa, roughness: 0.88 }),
       skin: createSkinMaterial(),
       helmet: new THREE.MeshStandardMaterial({ color: 0x45513f, roughness: 0.86 }),
+      friendlyHelmet: new THREE.MeshStandardMaterial({ color: 0x52665e, roughness: 0.88 }),
       goggles: new THREE.MeshStandardMaterial({ color: 0x171f22, metalness: 0.36, roughness: 0.25 }),
       mask: new THREE.MeshStandardMaterial({ color: 0x343a35, roughness: 0.95 }),
       glove: new THREE.MeshStandardMaterial({ color: 0x353a33, roughness: 0.9 }),
       boot: new THREE.MeshStandardMaterial({ color: 0x272d2a, roughness: 0.92 }),
+      friendlyBoot: new THREE.MeshStandardMaterial({ color: 0x293934, roughness: 0.93 }),
       rifle: new THREE.MeshStandardMaterial({ color: 0x252d2c, metalness: 0.65, roughness: 0.5 }),
       barrel: new THREE.MeshStandardMaterial({ color: 0x171c1b, metalness: 0.76, roughness: 0.37 }),
       polymer: new THREE.MeshStandardMaterial({ color: 0x242a27, roughness: 0.85 }),
@@ -1000,8 +1012,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       metal: new THREE.MeshStandardMaterial({ color: 0x4b514e, metalness: 0.78, roughness: 0.34 }),
       optic: new THREE.MeshStandardMaterial({ color: 0x131b1b, metalness: 0.65, roughness: 0.25 }),
       opticGlass: new THREE.MeshStandardMaterial({ color: 0x315b57, emissive: 0x15312c, emissiveIntensity: 0.18, metalness: 0.3, roughness: 0.16 }),
+      akWood: new THREE.MeshStandardMaterial({ color: 0x744a27, roughness: 0.82 }),
+      akWoodEdge: new THREE.MeshStandardMaterial({ color: 0x94633a, roughness: 0.78 }),
       groundShadow: new THREE.MeshBasicMaterial({ color: 0x09100f, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }),
     };
+    const weaponDropRingGeometry = new THREE.RingGeometry(0.31, 0.42, 20);
+    const weaponDropRingMaterial = new THREE.MeshBasicMaterial({ color: 0x88c9a7, transparent: true, opacity: 0.48, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     const bodyClothesGeometry = {
       torso: new THREE.CapsuleGeometry(0.205, 0.22, 8, 20),
       plate: new RoundedBoxGeometry(0.45, 0.42, 0.16, 4, 0.045),
@@ -1015,6 +1031,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       helmet: new THREE.SphereGeometry(0.155, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62),
       buckle: new RoundedBoxGeometry(0.36, 0.09, 0.11, 3, 0.018),
     };
+    const soldierWearGeometryCache = new Map();
     let rifleTemplate = null;
     const makeDetailedRifle = (targetLength, zOffset) => {
       if (!rifleTemplate) return null;
@@ -1036,6 +1053,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         part.receiveShadow = false;
         part.userData.sharedAsset = true;
         part.material = Array.isArray(part.material) ? part.material.map((material) => material.clone()) : part.material.clone();
+        part.userData.ownsMaterial = true;
       });
       const rifleAssembly = new THREE.Group();
       rifleAssembly.add(model);
@@ -1105,45 +1123,76 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       if (!detailed) return;
       enemy.userData.gun.traverse((part) => { if (part.isMesh) part.visible = false; });
       enemy.userData.gun.add(detailed);
+      enemy.userData.detailedRifle = detailed;
       enemy.userData.detailedRifleLoaded = true;
     };
-    const attachEnemyAK47 = (enemy) => {
-      const gun = enemy.userData.gun;
-      if (!gun || enemy.userData.ak47Loaded) return;
-      gun.traverse((part) => { if (part.isMesh) part.visible = false; });
-
-      const ak47 = new THREE.Group();
-      const steel = new THREE.MeshStandardMaterial({ color: 0x343630, metalness: 0.76, roughness: 0.48 });
-      const darkSteel = new THREE.MeshStandardMaterial({ color: 0x1d211f, metalness: 0.7, roughness: 0.55 });
-      const wood = new THREE.MeshStandardMaterial({ color: 0x744a27, roughness: 0.82 });
-      const woodEdge = new THREE.MeshStandardMaterial({ color: 0x94633a, roughness: 0.78 });
-      const akPart = (geometry, material, position, rotation = [0, 0, 0]) => {
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(...position);
-        mesh.rotation.set(...rotation);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.userData.enemyRoot = enemy;
-        mesh.userData.bodyPart = "body";
-        ak47.add(mesh);
-        return mesh;
+    let ak47Template = null;
+    const buildAK47Template = () => {
+      if (ak47Template) return ak47Template;
+      const model = new THREE.Group();
+      const steel = enemyMaterials.rifle;
+      const darkSteel = enemyMaterials.dark;
+      const wood = enemyMaterials.akWood;
+      const woodEdge = enemyMaterials.akWoodEdge;
+      const matrix = new THREE.Matrix4();
+      const offset = new THREE.Vector3();
+      const scale = new THREE.Vector3(1, 1, 1);
+      const euler = new THREE.Euler();
+      const quaternion = new THREE.Quaternion();
+      const partSet = () => new Map();
+      const addPart = (parts, geometry, material, position, rotation = [0, 0, 0]) => {
+        const transformed = geometry.clone();
+        offset.set(...position);
+        euler.set(...rotation);
+        matrix.compose(offset, quaternion.setFromEuler(euler), scale);
+        transformed.applyMatrix4(matrix);
+        const materialParts = parts.get(material) || [];
+        materialParts.push(transformed);
+        parts.set(material, materialParts);
       };
+      const finishParts = (parent, parts) => {
+        for (const [material, geometries] of parts) {
+          const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
+          if (!merged) {
+            geometries.forEach((geometry) => {
+              const mesh = new THREE.Mesh(geometry, material);
+              mesh.castShadow = false;
+              mesh.receiveShadow = false;
+              mesh.userData.sharedAsset = true;
+              parent.add(mesh);
+            });
+            continue;
+          }
+          if (merged !== geometries[0]) geometries.forEach((geometry) => geometry.dispose());
+          merged.computeBoundingSphere();
+          const mesh = new THREE.Mesh(merged, material);
+          mesh.castShadow = false;
+          mesh.receiveShadow = false;
+          mesh.userData.sharedAsset = true;
+          parent.add(mesh);
+        }
+      };
+      const mainParts = partSet();
 
-      // Distinctive stamped receiver, wooden furniture, curved magazine and long front sight.
-      akPart(new RoundedBoxGeometry(0.15, 0.14, 0.34, 4, 0.018), steel, [0, 0, -0.08]);
-      akPart(new RoundedBoxGeometry(0.142, 0.046, 0.31, 4, 0.012), darkSteel, [0, 0.085, -0.09]);
-      akPart(new RoundedBoxGeometry(0.13, 0.115, 0.33, 4, 0.022), wood, [0, -0.005, -0.37]);
-      akPart(new RoundedBoxGeometry(0.105, 0.052, 0.29, 4, 0.016), woodEdge, [0, 0.09, -0.365]);
-      akPart(new RoundedBoxGeometry(0.115, 0.115, 0.34, 4, 0.018), wood, [0, -0.025, 0.245], [0.025, 0, 0]);
-      akPart(new RoundedBoxGeometry(0.125, 0.12, 0.055, 4, 0.012), darkSteel, [0, -0.025, 0.42]);
-      akPart(new RoundedBoxGeometry(0.075, 0.2, 0.095, 4, 0.012), wood, [0, -0.155, 0.035], [-0.22, 0, 0]);
-      akPart(new RoundedBoxGeometry(0.065, 0.05, 0.09, 3, 0.008), darkSteel, [0, -0.055, 0.005]);
-      akPart(new THREE.CylinderGeometry(0.025, 0.027, 0.67, 12), darkSteel, [0, 0.01, -0.66], [Math.PI / 2, 0, 0]);
-      akPart(new THREE.CylinderGeometry(0.043, 0.046, 0.12, 12), steel, [0, 0.01, -1.045], [Math.PI / 2, 0, 0]);
-      akPart(new RoundedBoxGeometry(0.1, 0.07, 0.065, 3, 0.01), steel, [0, 0.075, -0.73]);
-      akPart(new RoundedBoxGeometry(0.035, 0.18, 0.045, 3, 0.008), darkSteel, [0, 0.105, -0.91]);
-      akPart(new RoundedBoxGeometry(0.05, 0.045, 0.055, 3, 0.008), steel, [0, 0.105, -0.13]);
+      // Stamped receiver, wooden furniture, steel barrel and front sight.
+      addPart(mainParts, new RoundedBoxGeometry(0.15, 0.14, 0.34, 4, 0.018), steel, [0, 0, -0.08]);
+      addPart(mainParts, new RoundedBoxGeometry(0.142, 0.046, 0.31, 4, 0.012), darkSteel, [0, 0.085, -0.09]);
+      addPart(mainParts, new RoundedBoxGeometry(0.13, 0.115, 0.33, 4, 0.022), wood, [0, -0.005, -0.37]);
+      addPart(mainParts, new RoundedBoxGeometry(0.105, 0.052, 0.29, 4, 0.016), woodEdge, [0, 0.09, -0.365]);
+      addPart(mainParts, new RoundedBoxGeometry(0.115, 0.115, 0.34, 4, 0.018), wood, [0, -0.025, 0.245], [0.025, 0, 0]);
+      addPart(mainParts, new RoundedBoxGeometry(0.125, 0.12, 0.055, 4, 0.012), darkSteel, [0, -0.025, 0.42]);
+      addPart(mainParts, new RoundedBoxGeometry(0.075, 0.2, 0.095, 4, 0.012), wood, [0, -0.155, 0.035], [-0.22, 0, 0]);
+      addPart(mainParts, new RoundedBoxGeometry(0.065, 0.05, 0.09, 3, 0.008), darkSteel, [0, -0.055, 0.005]);
+      addPart(mainParts, new THREE.CylinderGeometry(0.025, 0.027, 0.67, 12), darkSteel, [0, 0.01, -0.66], [Math.PI / 2, 0, 0]);
+      addPart(mainParts, new THREE.CylinderGeometry(0.043, 0.046, 0.12, 12), steel, [0, 0.01, -1.045], [Math.PI / 2, 0, 0]);
+      addPart(mainParts, new RoundedBoxGeometry(0.1, 0.07, 0.065, 3, 0.01), steel, [0, 0.075, -0.73]);
+      addPart(mainParts, new RoundedBoxGeometry(0.035, 0.18, 0.045, 3, 0.008), darkSteel, [0, 0.105, -0.91]);
+      addPart(mainParts, new RoundedBoxGeometry(0.05, 0.045, 0.055, 3, 0.008), steel, [0, 0.105, -0.13]);
+      finishParts(model, mainParts);
 
+      const magazine = new THREE.Group();
+      magazine.name = "ak47-magazine";
+      const magazineParts = partSet();
       const magazineShape = new THREE.Shape();
       magazineShape.moveTo(-0.055, 0.015);
       magazineShape.lineTo(0.055, 0.015);
@@ -1156,20 +1205,62 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         depth: 0.098, bevelEnabled: true, bevelSegments: 2, bevelSize: 0.006, bevelThickness: 0.008,
       });
       curvedMagazine.rotateY(Math.PI / 2);
-      akPart(curvedMagazine, darkSteel, [-0.049, -0.095, -0.025]);
-      akPart(new RoundedBoxGeometry(0.108, 0.025, 0.09, 3, 0.006), steel, [0, -0.405, -0.135]);
-      akPart(new RoundedBoxGeometry(0.022, 0.045, 0.08, 3, 0.006), darkSteel, [0.077, -0.15, -0.08]);
+      addPart(magazineParts, curvedMagazine, darkSteel, [-0.049, -0.095, -0.025]);
+      addPart(magazineParts, new RoundedBoxGeometry(0.108, 0.025, 0.09, 3, 0.006), steel, [0, -0.405, -0.135]);
+      addPart(magazineParts, new RoundedBoxGeometry(0.022, 0.045, 0.08, 3, 0.006), darkSteel, [0.077, -0.15, -0.08]);
+      finishParts(magazine, magazineParts);
+      model.add(magazine);
+      model.userData.detachableMagazine = magazine;
+      ak47Template = model;
+      return model;
+    };
+    const cloneAK47 = (enemy = null) => {
+      const model = buildAK47Template().clone(true);
+      model.userData.detachableMagazine = model.getObjectByName("ak47-magazine");
+      model.traverse((part) => {
+        if (!part.isMesh) return;
+        part.castShadow = false;
+        part.receiveShadow = false;
+        part.userData.sharedAsset = true;
+        if (enemy) {
+          part.userData.enemyRoot = enemy;
+          part.userData.bodyPart = "body";
+        }
+      });
+      return model;
+    };
+    const attachEnemyAK47 = (enemy) => {
+      const gun = enemy.userData.gun;
+      if (!gun || enemy.userData.ak47Loaded) return;
+      gun.traverse((part) => { if (part.isMesh) part.visible = false; });
+      const ak47 = cloneAK47(enemy);
+      ak47.scale.setScalar(0.62);
       gun.add(ak47);
       gun.userData.weaponClass = "ak47";
+      enemy.userData.ak47Model = ak47;
       enemy.userData.ak47Loaded = true;
+    };
+    const setSoldierLoadout = (soldier, weapon) => {
+      const loadout = weapon === "ak47" ? "ak47" : "m4";
+      if (loadout === "ak47" && !soldier.userData.ak47Loaded) attachEnemyAK47(soldier);
+      soldier.userData.loadout = loadout;
+      const gun = soldier.userData.gun;
+      if (!gun) return;
+      const akModel = soldier.userData.ak47Model;
+      const detailedRifle = soldier.userData.detailedRifle;
+      for (const child of gun.children) {
+        if (child === akModel) child.visible = loadout === "ak47";
+        else if (child === detailedRifle) child.visible = loadout !== "ak47";
+        else child.visible = loadout !== "ak47" && !detailedRifle;
+      }
     };
     const attachImportedSoldier = (enemy) => {
       if (!soldierTemplate || enemy.userData.modelLoaded) return;
       const model = cloneSkinnedScene(soldierTemplate.scene);
       model.traverse((part) => {
         if (!part.isMesh) return;
-        part.castShadow = true;
-        part.receiveShadow = true;
+        part.castShadow = false;
+        part.receiveShadow = false;
         part.userData.enemyRoot = enemy;
         part.userData.bodyPart = "body";
         part.userData.sharedAsset = true;
@@ -1183,44 +1274,76 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         "lowerarm_l", "lowerarm_r", "hand_l", "hand_r", "thigh_l", "thigh_r", "calf_l", "calf_r",
         "foot_l", "foot_r",
       ].map((name) => [name, model.getObjectByName(name)]));
-      const wear = (parent, geometry, material, position, rotation) => {
-        if (!parent) return null;
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(...position);
-        if (rotation) mesh.rotation.set(...rotation);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.userData.enemyRoot = enemy;
-        mesh.userData.bodyPart = "body";
-        parent.add(mesh);
-        return mesh;
-      };
-      const teamVest = enemy.userData.isFriendly
-        ? new THREE.MeshStandardMaterial({ color: 0x4f6259, roughness: 0.96 })
-        : enemyMaterials.vest;
-      const vestBack = new THREE.MeshStandardMaterial({ color: 0x30382f, roughness: 0.98 });
-      const pouches = enemy.userData.isFriendly
-        ? new THREE.MeshStandardMaterial({ color: 0x65736a, roughness: 0.97 })
-        : enemyMaterials.pouch;
-      wear(bones.pelvis, bodyClothesGeometry.torso, enemyMaterials.uniform, [0, 0.32, 0]);
+      const isFriendly = Boolean(enemy.userData.isFriendly);
+      const teamKey = isFriendly ? "friendly" : "hostile";
+      const uniform = isFriendly ? enemyMaterials.friendlyUniform : enemyMaterials.uniform;
+      const teamVest = isFriendly ? enemyMaterials.friendlyVest : enemyMaterials.vest;
+      const teamStrap = isFriendly ? enemyMaterials.friendlyStrap : enemyMaterials.strap;
+      const pouches = isFriendly ? enemyMaterials.friendlyPouch : enemyMaterials.pouch;
+      const packBack = isFriendly ? enemyMaterials.friendlyVestBack : enemyMaterials.vestBack;
+      const teamHelmet = isFriendly ? enemyMaterials.friendlyHelmet : enemyMaterials.helmet;
+      const teamBoot = isFriendly ? enemyMaterials.friendlyBoot : enemyMaterials.boot;
+      const teamPatch = isFriendly ? enemyMaterials.friendlyPatch : enemyMaterials.strap;
+      const cachedWear = soldierWearGeometryCache.get(teamKey);
+      const wearBatches = new Map();
+      const attachedBatches = new Set();
+      const sharedWearShapes = new Set(Object.values(bodyClothesGeometry));
+      const wearParentKey = (parent) => parent.userData.soldierWearKey || parent.name;
       const carrier = new THREE.Group();
+      carrier.name = "soldier-vest-carrier";
+      carrier.userData.soldierWearKey = "carrier";
       carrier.position.set(0, 0.14, 0.015);
       bones.spine_02?.add(carrier);
+      for (const [name, bone] of Object.entries(bones)) if (bone) bone.userData.soldierWearKey = name;
+      const wear = (parent, geometry, material, position, rotation = [0, 0, 0]) => {
+        if (!parent) return null;
+        const parentKey = wearParentKey(parent);
+        const batchKey = `${parentKey}:${material.uuid}`;
+        if (cachedWear) {
+          if (!attachedBatches.has(batchKey)) {
+            attachedBatches.add(batchKey);
+            for (const cachedGeometry of cachedWear.get(batchKey) || []) {
+              const mesh = new THREE.Mesh(cachedGeometry, material);
+              mesh.castShadow = false;
+              mesh.receiveShadow = false;
+              mesh.userData.sharedAsset = true;
+              mesh.userData.enemyRoot = enemy;
+              mesh.userData.bodyPart = "body";
+              parent.add(mesh);
+            }
+          }
+          if (!sharedWearShapes.has(geometry)) geometry.dispose();
+          return null;
+        }
+        const geometryPart = geometry.clone();
+        const transform = new THREE.Matrix4().compose(
+          new THREE.Vector3(...position),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)),
+          new THREE.Vector3(1, 1, 1),
+        );
+        geometryPart.applyMatrix4(transform);
+        if (!sharedWearShapes.has(geometry)) geometry.dispose();
+        const batch = wearBatches.get(batchKey) || { parent, material, geometries: [] };
+        batch.geometries.push(geometryPart);
+        wearBatches.set(batchKey, batch);
+        return null;
+      };
+      wear(bones.pelvis, bodyClothesGeometry.torso, uniform, [0, 0.32, 0]);
       wear(carrier, bodyClothesGeometry.plate, teamVest, [0, 0.015, 0.025]);
-      wear(carrier, bodyClothesGeometry.buckle, vestBack, [0, -0.245, 0.11]);
+      wear(carrier, bodyClothesGeometry.buckle, packBack, [0, -0.245, 0.11]);
       for (const side of [-1, 1]) {
-        wear(carrier, new RoundedBoxGeometry(0.055, 0.39, 0.055, 3, 0.016), enemyMaterials.strap,
+        wear(carrier, new RoundedBoxGeometry(0.055, 0.39, 0.055, 3, 0.016), teamStrap,
           [side * 0.15, 0.015, 0.11], [0, 0, side * 0.17]);
       }
       for (const x of [-0.157, -0.052, 0.052, 0.157]) {
         wear(carrier, bodyClothesGeometry.pouch, pouches, [x, -0.135, 0.125]);
-        wear(carrier, new RoundedBoxGeometry(0.084, 0.036, 0.016, 3, 0.007), enemyMaterials.strap, [x, -0.075, 0.168]);
+        wear(carrier, new RoundedBoxGeometry(0.084, 0.036, 0.016, 3, 0.007), teamStrap, [x, -0.075, 0.168]);
         wear(carrier, new RoundedBoxGeometry(0.012, 0.022, 0.012, 2, 0.004), enemyMaterials.metal, [x, -0.074, 0.18]);
       }
       wear(carrier, new RoundedBoxGeometry(0.13, 0.065, 0.018, 3, 0.01),
-        enemy.userData.isFriendly ? new THREE.MeshStandardMaterial({ color: 0x9fb5aa, roughness: 0.88 }) : enemyMaterials.strap,
+        teamPatch,
         [0, 0.155, 0.116]);
-      wear(bones.pelvis, new RoundedBoxGeometry(0.43, 0.1, 0.28, 4, 0.025), vestBack, [0, 0.03, 0.08]);
+      wear(bones.pelvis, new RoundedBoxGeometry(0.43, 0.1, 0.28, 4, 0.025), packBack, [0, 0.03, 0.08]);
       wear(bones.pelvis, bodyClothesGeometry.pouch, pouches, [-0.225, 0.02, 0.09]);
       wear(bones.pelvis, bodyClothesGeometry.pouch, pouches, [0.225, 0.02, 0.09]);
 
@@ -1230,18 +1353,39 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         const thigh = side < 0 ? bones.thigh_l : bones.thigh_r;
         const calf = side < 0 ? bones.calf_l : bones.calf_r;
         const foot = side < 0 ? bones.foot_l : bones.foot_r;
-        wear(upper, bodyClothesGeometry.arm, enemyMaterials.uniform, [0, 0.115, 0]);
-        wear(lower, bodyClothesGeometry.forearm, enemyMaterials.uniform, [0, 0.125, 0]);
-        wear(thigh, bodyClothesGeometry.thigh, enemyMaterials.uniform, [0, 0.195, 0]);
-        wear(thigh, bodyClothesGeometry.knee, vestBack, [0, 0.02, 0.085]);
-        wear(calf, bodyClothesGeometry.calf, enemyMaterials.uniform, [0, 0.19, 0]);
-        wear(foot, bodyClothesGeometry.boot, enemyMaterials.boot, [0, -0.025, -0.055]);
+        wear(upper, bodyClothesGeometry.arm, uniform, [0, 0.115, 0]);
+        wear(lower, bodyClothesGeometry.forearm, uniform, [0, 0.125, 0]);
+        wear(thigh, bodyClothesGeometry.thigh, uniform, [0, 0.195, 0]);
+        wear(thigh, bodyClothesGeometry.knee, packBack, [0, 0.02, 0.085]);
+        wear(calf, bodyClothesGeometry.calf, uniform, [0, 0.19, 0]);
+        wear(foot, bodyClothesGeometry.boot, teamBoot, [0, -0.025, -0.055]);
       }
-      wear(bones.head, bodyClothesGeometry.helmet, enemyMaterials.helmet, [0, 0.085, 0.004]);
-      wear(bones.head, new RoundedBoxGeometry(0.34, 0.035, 0.16, 3, 0.012), enemyMaterials.helmet, [0, 0.015, 0]);
+      wear(bones.head, bodyClothesGeometry.helmet, teamHelmet, [0, 0.085, 0.004]);
+      wear(bones.head, new RoundedBoxGeometry(0.34, 0.035, 0.16, 3, 0.012), teamHelmet, [0, 0.015, 0]);
       for (const side of [-1, 1]) {
-        wear(bones.head, new THREE.CylinderGeometry(0.052, 0.052, 0.052, 16), vestBack,
+        wear(bones.head, new THREE.CylinderGeometry(0.052, 0.052, 0.052, 16), packBack,
           [side * 0.145, 0.01, 0.002], [0, 0, Math.PI / 2]);
+      }
+
+      if (!cachedWear) {
+        const wearCache = new Map();
+        for (const [batchKey, batch] of wearBatches) {
+          const merged = batch.geometries.length === 1 ? batch.geometries[0] : mergeGeometries(batch.geometries, false);
+          const parts = merged ? [merged] : batch.geometries;
+          if (merged && merged !== batch.geometries[0]) batch.geometries.forEach((geometry) => geometry.dispose());
+          wearCache.set(batchKey, parts);
+          for (const geometry of parts) {
+            geometry.computeBoundingSphere();
+            const mesh = new THREE.Mesh(geometry, batch.material);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.userData.sharedAsset = true;
+            mesh.userData.enemyRoot = enemy;
+            mesh.userData.bodyPart = "body";
+            batch.parent.add(mesh);
+          }
+        }
+        soldierWearGeometryCache.set(teamKey, wearCache);
       }
 
       model.updateMatrixWorld(true);
@@ -1419,6 +1563,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       const numericId = [...state.id].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0);
       const remote = makeSoldier(scene, enemyMaterials, [state.x, state.z], numericId);
       remote.userData.isFriendly = true;
+      setSoldierLoadout(remote, state.weapon);
       remote.userData.targetPosition = new THREE.Vector3(state.x, state.parachute ? state.y || 0 : 0, state.z);
       remote.userData.targetYaw = state.yaw;
       remote.userData.targetMoving = false;
@@ -1449,7 +1594,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       remote.traverse((part) => {
         if (!part.isMesh && !part.isSprite) return;
         if (part.geometry && !part.userData.sharedAsset) part.geometry.dispose();
-        if (part.userData.sharedAsset) {
+        if (part.userData.ownsMaterial) {
           const materials = Array.isArray(part.material) ? part.material : [part.material];
           materials.forEach((material) => material.dispose());
         }
@@ -1477,6 +1622,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         if (!state?.id || state.id === localNetworkId) continue;
         visibleIds.add(state.id);
         const remote = remotePlayers.get(state.id) || addRemotePlayer(state);
+        setSoldierLoadout(remote, state.weapon);
         remote.userData.targetPosition.set(state.x, state.parachute ? state.y || 0 : 0, state.z);
         remote.userData.targetVehicleY = state.vehicle === "helicopter" ? state.y || 0 : 0;
         remote.userData.targetYaw = state.yaw;
@@ -1575,6 +1721,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     let ammo = MAG_SIZE;
     let rifleAmmo = MAG_SIZE;
     let pistolAmmo = 17;
+    let akAmmo = AK_MAG_SIZE;
+    let hasAk47 = false;
     let health = 100;
     let stamina = 100;
     let elapsedSeconds = 0;
@@ -1741,6 +1889,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         wrist: new THREE.Vector3(0.12, -0.13, -0.1),
         handRotation: new THREE.Euler(0.24, -0.04, -0.03),
       },
+      ak47: {
+        shoulder: new THREE.Vector3(0.54, -0.5, 0.12),
+        wrist: new THREE.Vector3(0.12, -0.13, -0.1),
+        handRotation: new THREE.Euler(0.24, -0.04, -0.03),
+      },
       glock: {
         shoulder: new THREE.Vector3(0.54, -0.5, 0.12),
         wrist: new THREE.Vector3(0.23, -0.14, -0.34),
@@ -1762,6 +1915,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       addWeapon(new THREE.BoxGeometry(0.13, 0.018, 0.24), weaponMaterials.dark, [0.02, -0.13 - groove * 0.026, 0.17]);
     }
     rifleModel.scale.setScalar(0.48);
+    const ak47Model = cloneAK47();
+    ak47Model.scale.setScalar(0.62);
+    ak47Model.visible = false;
+    baseWeapon.add(ak47Model);
+    const akMagazineMesh = ak47Model.userData.detachableMagazine;
+    const akMagazineHome = akMagazineMesh.position.clone();
 
     const buildWeaponEffects = (parent, muzzlePosition, casingPosition) => {
       const flash = new THREE.Group();
@@ -1819,7 +1978,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     pistolModel.position.set(0.182, -0.051, -0.282);
     pistolModel.scale.setScalar(0.24);
     const pistolEffects = buildWeaponEffects(pistolModel, [0.2, -0.06, -0.94], [0.35, -0.03, -0.56]);
-    const weaponEffects = { m4: rifleEffects, glock: pistolEffects };
+    const ak47Effects = buildWeaponEffects(ak47Model, [0, 0.01, -1.1], [0.1, 0.01, -0.08]);
+    const weaponEffects = { m4: rifleEffects, glock: pistolEffects, ak47: ak47Effects };
     let muzzleFlash = rifleEffects.flash;
     let muzzleLight = rifleEffects.light;
     let muzzleSocket = rifleEffects.muzzle;
@@ -1858,13 +2018,15 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     const reloadMagazineProps = [];
     const makeVestMagazine = (kind, pouchX, pouchIndex) => {
       const group = new THREE.Group();
-      const bodyMaterial = kind === "m4" ? weaponMaterials.polymer : pistolPolymer;
-      const ribMaterial = kind === "m4" ? weaponMaterials.dark : pistolMarking;
-      const bodyWidth = kind === "m4" ? 0.074 : 0.047;
-      const bodyHeight = kind === "m4" ? 0.19 : 0.145;
-      const bodyDepth = kind === "m4" ? 0.036 : 0.031;
-      gearMesh(new RoundedBoxGeometry(bodyWidth, bodyHeight, bodyDepth, 3, 0.008), bodyMaterial, [0, 0, 0], [0.08, 0, kind === "m4" ? -0.08 : 0], group);
-      for (let rib = 0; rib < (kind === "m4" ? 5 : 3); rib += 1) {
+      const isPistol = kind === "glock";
+      const bodyMaterial = isPistol ? pistolPolymer : weaponMaterials.polymer;
+      const ribMaterial = isPistol ? pistolMarking : weaponMaterials.dark;
+      const bodyWidth = isPistol ? 0.047 : kind === "ak47" ? 0.08 : 0.074;
+      const bodyHeight = isPistol ? 0.145 : 0.19;
+      const bodyDepth = isPistol ? 0.031 : 0.036;
+      const tilt = kind === "m4" ? -0.08 : kind === "ak47" ? -0.16 : 0;
+      gearMesh(new RoundedBoxGeometry(bodyWidth, bodyHeight, bodyDepth, 3, 0.008), bodyMaterial, [0, 0, 0], [0.08, 0, tilt], group);
+      for (let rib = 0; rib < (isPistol ? 3 : 5); rib += 1) {
         const ribY = -bodyHeight * 0.3 + rib * (bodyHeight * 0.14);
         gearMesh(new RoundedBoxGeometry(bodyWidth * 0.82, 0.008, bodyDepth * 1.04, 2, 0.002), ribMaterial, [0, ribY, bodyDepth * 0.12], [0, 0, 0], group);
       }
@@ -1880,10 +2042,32 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       gearMesh(new RoundedBoxGeometry(0.15, 0.04, 0.12, 3, 0.009), enemyMaterials.strap, [x, -0.105, 0.135]);
       gearMesh(new RoundedBoxGeometry(0.02, 0.07, 0.014, 3, 0.004), enemyMaterials.metal, [x, -0.2, 0.195]);
       gearMesh(new RoundedBoxGeometry(0.045, 0.16, 0.055, 3, 0.008), enemyMaterials.strap, [x, -0.205, 0.202]);
-      makeVestMagazine(pouch === 0 || pouch === 3 ? "glock" : "m4", x, pouch);
+      const magazineKind = pouch === 0 || pouch === 3 ? "glock" : pouch === 1 ? "m4" : "ak47";
+      const vestMagazine = makeVestMagazine(magazineKind, x, pouch);
+      if (magazineKind === "ak47") vestMagazine.visible = false;
     }
     gearMesh(new RoundedBoxGeometry(0.36, 0.11, 0.04, 4, 0.018), enemyMaterials.helmet, [0, 0.35, 0.01], [0, 0, 0]);
     camera.add(playerGear);
+
+    const dropEnemyWeapon = (enemy) => {
+      if (enemy.userData.weaponDropped || enemy.userData.loadout !== "ak47") return;
+      const group = new THREE.Group();
+      group.position.set(enemy.position.x + 0.18, 0, enemy.position.z + 0.12);
+      group.rotation.y = enemy.rotation.y;
+      const ring = new THREE.Mesh(weaponDropRingGeometry, weaponDropRingMaterial);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.018;
+      ring.userData.sharedAsset = true;
+      group.add(ring);
+      const weapon = cloneAK47();
+      weapon.scale.setScalar(0.62);
+      weapon.rotation.z = Math.PI / 2;
+      weapon.position.y = 0.12;
+      group.add(weapon);
+      scene.add(group);
+      weaponDrops.push({ group, weapon, collected: false, label: "AK-47" });
+      enemy.userData.weaponDropped = true;
+    };
 
     const spawnEnemy = () => {
       if (spawned >= enemyWaveSize || disposed) return null;
@@ -1937,8 +2121,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       if (!soundRef.current) return;
       prepareAudio();
       try {
-        const sampleName = weaponMode === "m4" ? "m4" : "glock";
-        if (playRecordedSound(sampleName, weaponMode === "m4" ? 0.64 : 0.72, 0.98 + Math.random() * 0.04)) return;
+        const isGlock = weaponMode === "glock";
+        const sampleName = isGlock ? "glock" : "m4";
+        const samplePitch = weaponMode === "ak47" ? 0.92 + Math.random() * 0.04 : 0.98 + Math.random() * 0.04;
+        if (playRecordedSound(sampleName, isGlock ? 0.72 : weaponMode === "ak47" ? 0.7 : 0.64, samplePitch)) return;
         if (!noiseBuffer) {
           noiseBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.14), audioContext.sampleRate);
           const channel = noiseBuffer.getChannelData(0);
@@ -1947,14 +2133,14 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         const source = audioContext.createBufferSource();
         source.buffer = noiseBuffer;
         const filter = audioContext.createBiquadFilter();
-        filter.type = "lowpass"; filter.frequency.value = weaponMode === "m4" ? 1550 : 2200;
+        filter.type = "lowpass"; filter.frequency.value = isGlock ? 2200 : weaponMode === "ak47" ? 1320 : 1550;
         const gain = audioContext.createGain();
         gain.gain.setValueAtTime(0.18, audioContext.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.12);
         source.connect(filter); filter.connect(gain); gain.connect(audioContext.destination); source.start();
         const thump = audioContext.createOscillator();
         const thumpGain = audioContext.createGain();
-        thump.frequency.setValueAtTime(weaponMode === "m4" ? 92 : 116, audioContext.currentTime);
+        thump.frequency.setValueAtTime(isGlock ? 116 : weaponMode === "ak47" ? 82 : 92, audioContext.currentTime);
         thump.frequency.exponentialRampToValueAtTime(42, audioContext.currentTime + 0.08);
         thumpGain.gain.setValueAtTime(0.16, audioContext.currentTime);
         thumpGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.095);
@@ -1964,7 +2150,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     const playReloadSound = () => {
       if (!soundRef.current) return;
       prepareAudio();
-      const sample = weaponMode === "m4" ? "m4reload" : "glockreload";
+      const sample = weaponMode === "glock" ? "glockreload" : "m4reload";
       if (!playRecordedSound(sample, 0.54)) {
         try {
           const click = audioContext.createOscillator();
@@ -1980,6 +2166,24 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     };
 
     const changePhase = (next) => { phaseValue = next; setPhase(next); };
+    const magazineSizeFor = (mode) => mode === "glock" ? 17 : mode === "ak47" ? AK_MAG_SIZE : MAG_SIZE;
+    const storedAmmoFor = (mode) => mode === "glock" ? pistolAmmo : mode === "ak47" ? akAmmo : rifleAmmo;
+    const storeCurrentAmmo = () => {
+      if (weaponMode === "glock") pistolAmmo = ammo;
+      else if (weaponMode === "ak47") akAmmo = ammo;
+      else rifleAmmo = ammo;
+    };
+    const findNearestWeaponDrop = (range = 2.7) => {
+      if (phaseValue !== "playing" || activeVehicle || parachuteActive) return null;
+      let nearest = null;
+      let nearestDistance = range;
+      for (const drop of weaponDrops) {
+        if (drop.collected) continue;
+        const distance = Math.hypot(camera.position.x - drop.group.position.x, camera.position.z - drop.group.position.z);
+        if (distance < nearestDistance) { nearest = drop; nearestDistance = distance; }
+      }
+      return nearest;
+    };
     const publishHud = () => {
       const player = camera.position;
       const radar = enemies.filter((enemy) => enemy.userData.alive).map((enemy) => ({
@@ -1989,6 +2193,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       const headingDegrees = (THREE.MathUtils.radToDeg(camera.rotation.y) % 360 + 360) % 360;
       const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
       const nearestIntel = intelPickups.find((pickup) => !pickup.collected && Math.hypot(camera.position.x - pickup.group.position.x, camera.position.z - pickup.group.position.z) < 2.65);
+      const nearestWeapon = findNearestWeaponDrop();
       const nearbyVehicle = [apc, helicopter].find((vehicle) => {
         const closeEnough = Math.hypot(camera.position.x - vehicle.position.x, camera.position.z - vehicle.position.z) < (vehicle === helicopter ? 6.2 : 4.8);
         return closeEnough && (vehicle === helicopter || Math.abs(camera.position.y - (vehicle.position.y + 1.7)) < 2.4);
@@ -1998,25 +2203,25 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         : nearbyVehicle ? `BOARD ${nearbyVehicle.userData.label}` : "";
       const usingCannon = activeVehicle === apc;
       setHud({
-        kills, health, ammo: usingCannon ? cannonAmmo : ammo, ammoMax: usingCannon ? CANNON_MAG_SIZE : weaponMode === "m4" ? MAG_SIZE : 17,
+        kills, health, ammo: usingCannon ? cannonAmmo : ammo, ammoMax: usingCannon ? CANNON_MAG_SIZE : magazineSizeFor(weaponMode),
         weapon: usingCannon ? "cannon" : weaponMode, seconds: remainingSeconds,
         accuracy: shots ? Math.round((hits / shots) * 100) : 0,
         stamina: Math.round(stamina), heading: directions[Math.round(headingDegrees / 45) % 8],
         radar, nearSupply: supplyCrates.some((crate) => !crate.used && Math.hypot(camera.position.x - crate.group.position.x, camera.position.z - crate.group.position.z) < 3.1),
         nearHouse: houses.some((house) => Math.abs(camera.position.x - house.x) < 1.35 && Math.abs(camera.position.z - house.front) < 2.2),
-        nearIntel: Boolean(nearestIntel), nearDefense: Boolean(defenseZone && Math.hypot(camera.position.x - defenseZone.position.x, camera.position.z - defenseZone.position.z) < 6.8),
+        nearIntel: Boolean(nearestIntel), nearWeapon: nearestWeapon?.label || "", nearDefense: Boolean(defenseZone && Math.hypot(camera.position.x - defenseZone.position.x, camera.position.z - defenseZone.position.z) < 6.8),
         vehicleLabel, progress: sharedProgress, target: selectedMissionMeta.target, teamSize: connectedPlayerCount,
         reloading: usingCannon ? cannonReloading : reloading,
       });
     };
     const setWeapon = (nextWeapon) => {
-      if (phaseValue !== "playing" || reloading || weaponMode === nextWeapon) return;
-      if (weaponMode === "m4") rifleAmmo = ammo;
-      else pistolAmmo = ammo;
+      if (phaseValue !== "playing" || reloading || weaponMode === nextWeapon || (nextWeapon === "ak47" && !hasAk47)) return;
+      storeCurrentAmmo();
       weaponMode = nextWeapon;
-      ammo = weaponMode === "m4" ? rifleAmmo : pistolAmmo;
+      ammo = storedAmmoFor(weaponMode);
       rifleModel.visible = weaponMode === "m4";
       pistolModel.visible = weaponMode === "glock";
+      ak47Model.visible = weaponMode === "ak47";
       muzzleFlash.visible = false;
       muzzleLight.intensity = 0;
       const activeEffects = weaponEffects[weaponMode];
@@ -2026,7 +2231,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       casingSocket = activeEffects.casing;
       recoil = 0;
       nextShotAt = performance.now() + 180;
-      setNotice(weaponMode === "m4" ? "M4A1 · 5.56 × 45 mm" : "GLOCK 17 · 9 × 19 mm");
+      setNotice(weaponMode === "m4" ? "M4A1 · 5.56 × 45 mm" : weaponMode === "ak47" ? "AK-47 · 7.62 × 39 mm" : "GLOCK 17 · 9 × 19 mm");
       window.setTimeout(() => setNotice(""), 1400);
       publishHud();
     };
@@ -2070,8 +2275,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     };
     const ejectCasing = () => {
       const position = new THREE.Vector3(); casingSocket.getWorldPosition(position);
-      const casingLength = weaponMode === "m4" ? 0.045 : 0.019;
-      const casingRadius = weaponMode === "m4" ? 0.0048 : 0.005;
+      const casingLength = weaponMode === "glock" ? 0.019 : 0.045;
+      const casingRadius = weaponMode === "glock" ? 0.005 : 0.0048;
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(casingRadius, casingRadius, casingLength, 8), new THREE.MeshStandardMaterial({ color: 0xb58c50, metalness: 0.86, roughness: 0.25 }));
       shell.rotation.set(Math.random() * 2, 0, Math.PI / 2);
       shell.position.copy(position);
@@ -2159,6 +2364,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       if (!enemy.userData.alive) return;
       enemy.userData.alive = false;
       enemy.userData.deadAt = performance.now() + 1450;
+      dropEnemyWeapon(enemy);
       enemy.rotation.z = Math.random() > 0.5 ? 1.18 : -1.18;
       if (credited) {
         kills += 1;
@@ -2249,10 +2455,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       nextShotAt = now + (aimingNow ? 105 : 92);
       if (weaponMode === "glock") nextShotAt = now + (aimingNow ? 190 : 165);
       ammo -= 1;
-      if (weaponMode === "m4") rifleAmmo = ammo;
-      else pistolAmmo = ammo;
+      storeCurrentAmmo();
       shots += 1;
-      recoil = Math.min(recoil + (weaponMode === "m4" ? (aimingNow ? 0.028 : 0.042) : (aimingNow ? 0.055 : 0.075)), 0.2);
+      const weaponRecoil = weaponMode === "m4"
+        ? (aimingNow ? 0.028 : 0.042)
+        : weaponMode === "ak47" ? (aimingNow ? 0.038 : 0.056) : (aimingNow ? 0.055 : 0.075);
+      recoil = Math.min(recoil + weaponRecoil, 0.2);
       recoilRoll = (Math.random() - 0.5) * 0.018;
       muzzleFlash.visible = true;
       muzzleLight.intensity = 58;
@@ -2344,7 +2552,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       if (cannonAmmo === 0) startCannonReload();
     };
     function startReload() {
-      const magazineSize = weaponMode === "m4" ? MAG_SIZE : 17;
+      const magazineSize = magazineSizeFor(weaponMode);
       if (phaseValue !== "playing" || reloading || ammo === magazineSize) return;
       const matchingMagazineProps = reloadMagazineProps.filter((magazine) => magazine.kind === weaponMode);
       if (matchingMagazineProps.length) {
@@ -2358,7 +2566,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       setAiming(false);
       reloading = true;
       reloadStartedAt = performance.now();
-      reloadDuration = weaponMode === "m4" ? 1950 : 1750;
+      reloadDuration = weaponMode === "glock" ? 1750 : weaponMode === "ak47" ? 2100 : 1950;
       playReloadSound();
       publishHud();
       if (reloadTimeout) window.clearTimeout(reloadTimeout);
@@ -2377,8 +2585,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         reloadSpareMagazine = null;
         reloadSpareMagazineStart = null;
         supportArm.position.set(0, 0, 0);
-        if (weaponMode === "m4") rifleAmmo = ammo;
-        else pistolAmmo = ammo;
+        storeCurrentAmmo();
         publishHud();
       }, reloadDuration);
     }
@@ -2396,6 +2603,21 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       }, 2400);
     };
     const resupply = () => {
+      const weaponDrop = findNearestWeaponDrop();
+      if (weaponDrop) {
+        weaponDrop.collected = true;
+        weaponDrop.group.visible = false;
+        hasAk47 = true;
+        akAmmo = AK_MAG_SIZE;
+        reloadMagazineProps.filter((magazine) => magazine.kind === "ak47").forEach((magazine) => { magazine.group.visible = true; });
+        if (weaponMode === "ak47") {
+          ammo = akAmmo;
+          setNotice("AK-47 AMMO TOPPED UP · 30 ROUNDS");
+          window.setTimeout(() => setNotice(""), 1500);
+        } else setWeapon("ak47");
+        publishHud();
+        return;
+      }
       if (selectedMissionMeta.id === "intel") {
         const pickup = intelPickups.find((item) => !item.collected && Math.hypot(camera.position.x - item.group.position.x, camera.position.z - item.group.position.z) < 2.65);
         if (pickup) {
@@ -2415,10 +2637,9 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       crate.used = true;
       crate.statusLamp.material = lampOff;
       ammoBoxUsed.add(crate.id);
-      ammo = weaponMode === "m4" ? MAG_SIZE : 17;
+      ammo = magazineSizeFor(weaponMode);
       cannonReserve = Math.max(cannonReserve, CANNON_MAG_SIZE * 2);
-      if (weaponMode === "m4") rifleAmmo = ammo;
-      else pistolAmmo = ammo;
+      storeCurrentAmmo();
       health = Math.min(100, health + 48);
       setNotice("SUPPLY SECURED - AMMO FULL - HEALTH RESTORED");
       publishHud();
@@ -2453,20 +2674,27 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         enemy.userData.mixer?.stopAllAction();
         enemy.traverse((part) => {
           if (!part.isMesh) return;
-          if (!part.userData.sharedAsset) part.geometry.dispose();
-          if (part.userData.sharedAsset) {
+          if (part.geometry && !part.userData.sharedAsset) part.geometry.dispose();
+          if (part.userData.ownsMaterial) {
             const parts = Array.isArray(part.material) ? part.material : [part.material];
             parts.forEach((material) => material.dispose());
           }
         });
       });
       enemies.length = 0;
-      spawned = 0; kills = 0; shots = 0; hits = 0; score = 0; ammo = weaponMode === "m4" ? MAG_SIZE : 17; rifleAmmo = MAG_SIZE; pistolAmmo = 17; health = 100; stamina = 100;
+      weaponDrops.forEach((drop) => scene.remove(drop.group));
+      weaponDrops.length = 0;
+      spawned = 0; kills = 0; shots = 0; hits = 0; score = 0; weaponMode = "m4"; ammo = MAG_SIZE; rifleAmmo = MAG_SIZE; pistolAmmo = 17; akAmmo = AK_MAG_SIZE; hasAk47 = false; health = 100; stamina = 100;
       cannonAmmo = CANNON_MAG_SIZE; cannonReserve = CANNON_MAG_SIZE * 3; cannonReloading = false;
       if (cannonReloadTimeout) window.clearTimeout(cannonReloadTimeout);
       elapsedSeconds = 0; remainingSeconds = selectedMissionMeta.seconds; ammoBoxUsed.clear(); supplyCrates.forEach((crate) => { crate.used = false; crate.statusLamp.material = lampGlow; }); reloading = false; reloadStartedAt = 0; reloadDuration = 0;
       m4MagazineMesh.position.copy(m4MagazineHome); m4MagazineMesh.visible = true;
       pistolMagazineMesh.position.copy(pistolMagazineHome); pistolMagazineMesh.visible = true;
+      akMagazineMesh.position.copy(akMagazineHome); akMagazineMesh.visible = true; ak47Model.visible = false;
+      rifleModel.visible = true; pistolModel.visible = false;
+      reloadMagazineProps.filter((magazine) => magazine.kind === "ak47").forEach((magazine) => { magazine.group.visible = false; });
+      muzzleFlash.visible = false; muzzleLight.intensity = 0;
+      muzzleFlash = weaponEffects.m4.flash; muzzleLight = weaponEffects.m4.light; muzzleSocket = weaponEffects.m4.muzzle; casingSocket = weaponEffects.m4.casing;
       supportArm.position.set(0, 0, 0);
       collectedIntel = 0;
       for (const pickup of intelPickups) { pickup.collected = false; pickup.group.visible = true; }
@@ -2547,10 +2775,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       keys.add(event.code);
       if (event.code === "Escape") pauseGame();
       if (event.code === "KeyR") activeVehicle === apc ? startCannonReload() : startReload();
-      if (event.code === "KeyE" && phaseValue === "playing") resupply();
+      if (event.code === "KeyE" && phaseValue === "playing" && !event.repeat) resupply();
       if (event.code === "KeyF" && phaseValue === "playing" && !event.repeat) interactVehicle();
       if (event.code === "Digit1" || event.code === "KeyQ") setWeapon("m4");
       if (event.code === "Digit2") setWeapon("glock");
+      if (event.code === "Digit3") setWeapon("ak47");
     };
     const onKeyUp = (event) => keys.delete(event.code);
     const onContextMenu = (event) => event.preventDefault();
@@ -2724,10 +2953,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         playerGear.position.y = -0.91 + feetBounce * 0.55 + swayY * 0.35;
         playerGear.rotation.z = -swayX * 0.22;
         const reloadProgress = reloading && reloadDuration > 0 ? THREE.MathUtils.clamp((now - reloadStartedAt) / reloadDuration, 0, 1) : 0;
-        const activeMagazine = weaponMode === "m4" ? m4MagazineMesh : pistolMagazineMesh;
-        const magazineHome = weaponMode === "m4" ? m4MagazineHome : pistolMagazineHome;
-        const magazineDrop = weaponMode === "m4" ? 0.68 : 0.78;
-        supportArm.visible = weaponMode === "m4" || reloading;
+        const activeMagazine = weaponMode === "m4" ? m4MagazineMesh : weaponMode === "ak47" ? akMagazineMesh : pistolMagazineMesh;
+        const magazineHome = weaponMode === "m4" ? m4MagazineHome : weaponMode === "ak47" ? akMagazineHome : pistolMagazineHome;
+        const magazineDrop = weaponMode === "glock" ? 0.78 : 0.68;
+        supportArm.visible = weaponMode !== "glock" || reloading;
         if (reloading) {
           if (reloadProgress < 0.35) {
             activeMagazine.visible = true;
@@ -2748,7 +2977,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             reloadSpareMagazine.group.visible = reloadProgress >= 0.18 && reloadProgress < 0.68;
             reloadSpareMagazine.group.position.copy(reloadSpareMagazineStart).lerp(socketInGear, pickupT);
             reloadSpareMagazine.group.position.y += Math.sin(pickupT * Math.PI) * 0.09;
-            reloadSpareMagazine.group.rotation.z = THREE.MathUtils.lerp(-0.08, weaponMode === "m4" ? 0.04 : 0, pickupT);
+            reloadSpareMagazine.group.rotation.z = THREE.MathUtils.lerp(-0.08, weaponMode === "ak47" ? -0.16 : weaponMode === "m4" ? 0.04 : 0, pickupT);
 
             reloadSpareMagazine.group.updateWorldMatrix(true, false);
             const grabBlend = THREE.MathUtils.smoothstep(reloadProgress, 0.07, 0.20)
@@ -2824,15 +3053,19 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           enemy.position.x = THREE.MathUtils.clamp(enemy.position.x, -42, 42);
           enemy.position.z = THREE.MathUtils.clamp(enemy.position.z, -210, 30);
           setEnemyMotion(enemy, approach ? "run" : distance > 2.2 ? "walk" : "idle");
-          poseRiggedSoldier(enemy, elapsed, enemy.userData.motion, enemy.userData.phase);
           const gait = elapsed * (approach ? 8.8 : 5.1) + enemy.userData.phase;
           enemy.position.y = approach ? Math.abs(Math.sin(gait)) * 0.025 : Math.sin(gait) * 0.012;
-          enemy.userData.limbs.forEach(({ leg, arm, side }) => {
-            const swing = Math.sin(gait) * (approach ? 0.34 : 0.11);
-            leg.rotation.x = swing * side;
-            arm.rotation.x = -0.22 + Math.sin(gait + Math.PI) * (approach ? 0.11 : 0.035);
-            arm.rotation.z = side * (0.04 + Math.sin(gait) * 0.018);
-          });
+          const rigUpdateInterval = distance > 82 ? 180 : distance > 42 ? 72 : 0;
+          if (!rigUpdateInterval || now - (enemy.userData.lastPoseAt || 0) >= rigUpdateInterval) {
+            poseRiggedSoldier(enemy, elapsed, enemy.userData.motion, enemy.userData.phase);
+            enemy.userData.limbs.forEach(({ leg, arm, side }) => {
+              const swing = Math.sin(gait) * (approach ? 0.34 : 0.11);
+              leg.rotation.x = swing * side;
+              arm.rotation.x = -0.22 + Math.sin(gait + Math.PI) * (approach ? 0.11 : 0.035);
+              arm.rotation.z = side * (0.04 + Math.sin(gait) * 0.018);
+            });
+            enemy.userData.lastPoseAt = now;
+          }
 
           if (now > enemy.userData.fireAt && distance < 34) {
             enemy.userData.fireAt = now + 1250 + Math.random() * 1650;
@@ -3040,9 +3273,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           {aiming && hud.weapon === "m4" && !hud.reloading ? <div className="scope-overlay" aria-label="Magnified rifle scope view"><span className="scope-crosshair" /></div> : <div className={aiming ? "combat-reticle ads-reticle" : "combat-reticle"} aria-hidden="true"><i /><i /><i /><i /><b /></div>}
           <div key={hitPulse} className={hitPulse ? "hit-confirmation visible" : "hit-confirmation"} aria-hidden="true"><i /><i /><i /><i /></div>
           <div key={damagePulse} className={damagePulse ? "damage-vignette pulse" : "damage-vignette"} aria-hidden="true" />
-          {hud.nearIntel && <div className="supply-prompt"><kbd>E</kbd> RECOVER INTEL <span>· shared objective</span></div>}
+          {hud.nearWeapon && <div className="supply-prompt weapon-pickup-prompt"><kbd>E</kbd> PICK UP <b>{hud.nearWeapon}</b> <span>· add to arsenal</span></div>}
+          {!hud.nearWeapon && hud.nearIntel && <div className="supply-prompt"><kbd>E</kbd> RECOVER INTEL <span>· shared objective</span></div>}
           {hud.nearDefense && <div className="supply-prompt"><kbd>ZONE</kbd> HOLD THE LINE <span>· team progress</span></div>}
-          {hud.nearSupply && <div className="supply-prompt"><kbd>E</kbd> RESUPPLY <span>· ammo + health</span></div>}
+          {!hud.nearWeapon && !hud.nearIntel && hud.nearSupply && <div className="supply-prompt"><kbd>E</kbd> RESUPPLY <span>· ammo + health</span></div>}
           {hud.vehicleLabel && <div className="supply-prompt vehicle-prompt"><kbd>F</kbd> {hud.vehicleLabel} <span>· vehicle</span></div>}
           {hud.nearHouse && <div className="house-prompt">OPEN HOUSE <span>· CLEAR THE ROOM</span></div>}
           {notice && <div className="combat-notice">{notice}</div>}
@@ -3051,7 +3285,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         <div className="combat-bottomline">
           <div className="health-panel"><div className="health-label"><span>VITALS</span><b>{String(hud.health).padStart(3, "0")}</b></div><div className="health-track"><i style={{ width: `${hud.health}%` }} /></div><div className="stamina-track"><span>STAMINA</span><i><b style={{ width: `${hud.stamina}%` }} /></i></div></div>
           <div className="bottom-objective"><span>TEAM OBJECTIVE</span><b>{closed && phase === "complete" ? "AREA SECURED" : selectedMissionMeta.objective}</b><small>{selectedMissionMeta.id === "assault" ? `${hud.progress} OF ${hud.target} TEAM ELIMINATIONS` : selectedMissionMeta.id === "intel" ? `${hud.progress} OF ${hud.target} DATA DRIVES` : `${Math.floor(hud.progress)} OF ${hud.target} SECONDS HELD`}</small></div>
-          <div className="weapon-status"><div className="weapon-text"><span>{hud.weapon === "cannon" ? "VEHICLE / MAIN CANNON" : hud.weapon === "m4" ? "PRIMARY / ASSAULT RIFLE" : "SECONDARY / SIDEARM"}</span><b>{hud.weapon === "cannon" ? <>APC <i>75 MM</i></> : hud.weapon === "m4" ? <>M4A1 <i>CARBINE</i></> : <>GLOCK <i>17</i></>}</b><small>{hud.reloading ? "RELOADING" : hud.weapon === "cannon" ? "HE SHELL · LMB FIRE · R RELOAD" : hud.weapon === "m4" ? "5.56 x 45 MM - SEMI / AUTO" : "9 x 19 MM - SEMI-AUTO"}</small></div><strong>{String(hud.ammo).padStart(2, "0")}<small> / {hud.ammoMax}</small></strong><div className="ammo-pips">{Array.from({ length: hud.ammoMax }, (_, index) => <i className={index < hud.ammo ? "loaded" : ""} key={index} />)}</div></div>
+          <div className="weapon-status"><div className="weapon-text"><span>{hud.weapon === "cannon" ? "VEHICLE / MAIN CANNON" : hud.weapon === "glock" ? "SECONDARY / SIDEARM" : hud.weapon === "ak47" ? "LOOTED / ASSAULT RIFLE" : "PRIMARY / ASSAULT RIFLE"}</span><b>{hud.weapon === "cannon" ? <>APC <i>75 MM</i></> : hud.weapon === "ak47" ? <>AK-47 <i>RIFLE</i></> : hud.weapon === "m4" ? <>M4A1 <i>CARBINE</i></> : <>GLOCK <i>17</i></>}</b><small>{hud.reloading ? "RELOADING" : hud.weapon === "cannon" ? "HE SHELL · LMB FIRE · R RELOAD" : hud.weapon === "ak47" ? "7.62 x 39 MM - FULL AUTO" : hud.weapon === "m4" ? "5.56 x 45 MM - SEMI / AUTO" : "9 x 19 MM - SEMI-AUTO"}</small></div><strong>{String(hud.ammo).padStart(2, "0")}<small> / {hud.ammoMax}</small></strong><div className="ammo-pips">{Array.from({ length: hud.ammoMax }, (_, index) => <i className={index < hud.ammo ? "loaded" : ""} key={index} />)}</div></div>
         </div>
 
         {error && <div className="mission-overlay"><div className="mission-card"><span className="mission-kicker">GRAPHICS ERROR</span><h1>Hindi mabuksan<br /><em>ang mission.</em></h1><p>{error}</p></div></div>}
@@ -3067,10 +3301,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
               <div><kbd className="key-wide">SHIFT</kbd><small>SPRINT</small></div>
               <div><kbd className="key-wide">MOUSE</kbd><small>AIM / FIRE</small></div>
               <div><kbd className="key-wide">R</kbd><small>RELOAD</small></div>
-              <div><kbd className="key-wide">E</kbd><small>RESUPPLY</small></div>
+              <div><kbd className="key-wide">E</kbd><small>RESUPPLY / PICK UP</small></div>
               <div><kbd className="key-wide">F</kbd><small>BOARD / EXIT · HELI EXIT HAS PARACHUTE</small></div>
               <div><kbd className="key-wide">SPACE / CTRL</kbd><small>HELI UP / DOWN</small></div>
-              <div><kbd className="key-wide">1 / 2</kbd><small>SWITCH WEAPON</small></div>
+              <div><kbd className="key-wide">1 / 2 / 3</kbd><small>SWITCH WEAPON</small></div>
             </div>
             <div className="mission-actions">
               <button className="deploy-button" type="button" onClick={() => launchRef.current?.(phase !== "paused")}>{intro ? "DEPLOY TO OPERATION" : phase === "paused" ? "IPAGPATULOY ANG MISSION" : phase === "complete" ? "ULITIN ANG MISSION" : "SUBUKAN MULI"}<span>↗</span></button>
@@ -3082,7 +3316,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         </div>}
       </main>
 
-      <footer className="operation-footer"><span><i /> DEPLOYMENT STATUS <b>{phase === "playing" ? "ACTIVE" : phase === "complete" ? "SUCCESS" : phase === "failed" ? "FAILED" : phase === "paused" ? "PAUSED" : "STANDBY"}</b></span><span>WEBGL RENDER <b>THREE.JS</b></span><span className="footer-controls">WASD MOVE <i /> 1 / 2 WEAPON <i /> SHIFT SPRINT <i /> F VEHICLE <i /> LMB FIRE</span></footer>
+      <footer className="operation-footer"><span><i /> DEPLOYMENT STATUS <b>{phase === "playing" ? "ACTIVE" : phase === "complete" ? "SUCCESS" : phase === "failed" ? "FAILED" : phase === "paused" ? "PAUSED" : "STANDBY"}</b></span><span>WEBGL RENDER <b>THREE.JS</b></span><span className="footer-controls">WASD MOVE <i /> 1 / 2 / 3 WEAPON <i /> SHIFT SPRINT <i /> F VEHICLE <i /> LMB FIRE</span></footer>
     </div>
   );
 }
