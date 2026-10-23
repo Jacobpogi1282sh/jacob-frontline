@@ -3265,23 +3265,36 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       window.removeEventListener("resize", onResize);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
       effects.forEach(removeEffect);
+      const releasedMaterials = new Set();
+      const releasedTextures = new Set();
+      const releaseMaterial = (material) => {
+        if (!material || releasedMaterials.has(material)) return;
+        releasedMaterials.add(material);
+        for (const value of Object.values(material)) {
+          if (value?.isTexture && value !== radialTexture && !releasedTextures.has(value)) {
+            releasedTextures.add(value);
+            value.dispose();
+          }
+        }
+        material.dispose();
+      };
       scene.traverse((item) => {
         if (item.isMesh || item.isLine || item.isSprite || item.isPoints) {
           if (item.geometry) item.geometry.dispose();
           if (item.material) {
             const materialsToDispose = Array.isArray(item.material) ? item.material : [item.material];
-            materialsToDispose.forEach((material) => { if (material.map && material.map !== radialTexture) material.map.dispose(); material.dispose(); });
+            materialsToDispose.forEach(releaseMaterial);
           }
         }
       });
       backgroundTexture?.dispose();
       environmentTarget?.dispose();
-      Object.values(textures).forEach((material) => { if (material.map) material.map.dispose(); material.dispose(); });
-      containerMaterials.forEach((material) => material.dispose());
-      Object.values(enemyMaterials).forEach((material) => { if (material.map) material.map.dispose(); material.dispose(); });
-      Object.values(weaponMaterials).forEach((material) => material.dispose());
-      objectiveGlow.dispose(); objectiveMetal.dispose();
-      radialTexture.dispose(); signTexture.dispose(); wireMat.dispose(); centerPaint.dispose();
+      Object.values(textures).forEach(releaseMaterial);
+      containerMaterials.forEach(releaseMaterial);
+      Object.values(enemyMaterials).forEach(releaseMaterial);
+      Object.values(weaponMaterials).forEach(releaseMaterial);
+      [objectiveGlow, objectiveMetal, wireMat, centerPaint].forEach(releaseMaterial);
+      radialTexture.dispose(); signTexture.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       if (audioContext) audioContext.close().catch(() => {});
