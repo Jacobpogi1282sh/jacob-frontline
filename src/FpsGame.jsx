@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { clone as cloneSkinnedScene } from "three/addons/utils/SkeletonUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
@@ -27,27 +28,30 @@ const MAPS = {
   barangay: {
     id: "barangay", name: "SAN ISIDRO", region: "TROPICAL BARANGAY", code: "01", mood: "SUNRISE / RURAL",
     description: "Mahabang barangay road, mga bahay na puwedeng pasukin, palayan at punong nagbibigay ng takip.",
+    environment: "/assets/fps/polyhaven/hdris/citrus_orchard_road_puresky_1k.hdr", groundAsset: "forest_ground_05",
     sky: 0x788a91, fog: 0x777d76, fogFar: 235, groundTint: 0xffffff, roadTint: 0xffffff, houseStyle: "village",
     houses: [[-8.5, 5, 0, 6.2, 6.3], [8.5, -8, 1, 6.2, 6], [-8.5, -25, 2, 6.2, 6.7], [8.5, -40, 3, 6.2, 6.2], [-8.5, -58, 4, 6.2, 6.4], [8.5, -76, 5, 6.2, 6.3], [-8.5, -101, 6, 6.2, 6.5], [8.5, -119, 7, 6.2, 6.1], [-8.5, -137, 8, 6.2, 6.6], [8.5, -155, 9, 6.2, 6.2], [-8.5, -173, 10, 6.2, 6.4], [8.5, -190, 11, 6.2, 6.3]],
     trees: [[-17, 9], [17, 10], [-18, -12], [18, -19], [-17, -37], [17, -43], [-14, -61], [15, -68], [-21, -88], [21, -98], [-25, -118], [26, -130], [-24, -151], [25, -166], [-26, -184], [27, -198]],
-    enemies: ENEMY_STARTS, mountain: false, containers: false, sign: "BARANGAY SAN ISIDRO",
+    enemies: ENEMY_STARTS, containers: false, sign: "BARANGAY SAN ISIDRO",
   },
   highlands: {
     id: "highlands", name: "CORDILLERA PASS", region: "MOUNTAIN OUTPOST", code: "02", mood: "OVERCAST / HIGHLANDS",
     description: "Mahabang mountain pass na may outpost, bantay-tore, batuhan, at makapal na pine forest.",
+    environment: "/assets/fps/polyhaven/hdris/fouriesburg_mountain_cloudy_1k.hdr", groundAsset: "rocky_terrain_02",
     sky: 0x77858b, fog: 0x6e7777, fogFar: 220, groundTint: 0x9aa18b, roadTint: 0xaaa391, houseStyle: "ridge",
     houses: [[-8.5, 4.7, 0, 6.2, 6.3], [8.5, -10, 1, 6.2, 6], [-8.5, -28, 2, 6.2, 6.7], [8.5, -44, 3, 6.2, 6.2], [-8.5, -64, 4, 6.2, 6.4], [8.5, -83, 5, 6.2, 6.3], [-8.5, -103, 6, 6.2, 6.5], [8.5, -122, 7, 6.2, 6.1], [-8.5, -141, 8, 6.2, 6.6], [8.5, -159, 9, 6.2, 6.2], [-8.5, -177, 10, 6.2, 6.4], [8.5, -194, 11, 6.2, 6.3]],
     trees: [[-16, 7], [16, 9], [-18, -14], [18, -20], [-17, -39], [17, -47], [-15, -65], [15, -72], [-20, -91], [21, -101], [-24, -121], [24, -136], [-23, -154], [25, -170], [-25, -190], [27, -202]],
     enemies: ENEMY_STARTS.map(([x, z], index) => [x + (index % 2 ? 0.7 : -0.7), z - (index % 3) * 1.5]),
-    mountain: true, containers: false, sign: "CORDILLERA PASS / OUTPOST 04",
+    containers: false, sign: "CORDILLERA PASS / OUTPOST 04",
   },
   port: {
-    id: "port", name: "HARBOR 09", region: "INDUSTRIAL PORT", code: "03", mood: "NIGHT / INDUSTRIAL",
+    id: "port", name: "HARBOR 09", region: "INDUSTRIAL PORT", code: "03", mood: "DUSK / INDUSTRIAL",
     description: "Malawak na night-shift cargo terminal na may pantalan, warehouse at magkakapatong na container.",
+    environment: "/assets/fps/polyhaven/hdris/industrial_sunset_02_puresky_1k.hdr", groundAsset: "concrete_rock_path",
     sky: 0x25383e, fog: 0x435054, fogFar: 195, groundTint: 0xb5b5aa, roadTint: 0x9b9b91, houseStyle: "port",
     houses: [[-9.1, 5, 0, 7.2, 8.2], [9.1, -10, 1, 7.2, 8], [-9.1, -28, 2, 7.2, 8.5], [9.1, -45, 3, 7.2, 8.1], [-9.1, -65, 4, 7.2, 8.2], [9.1, -84, 5, 7.2, 8.3], [-9.1, -105, 6, 7.2, 8.2], [9.1, -125, 7, 7.2, 8], [-9.1, -145, 8, 7.2, 8.5], [9.1, -165, 9, 7.2, 8.1], [-9.1, -184, 10, 7.2, 8.2], [9.1, -202, 11, 7.2, 8.3]],
     trees: [], enemies: ENEMY_STARTS.map(([x, z], index) => [x * 0.78, z - (index % 3) * 1.2]),
-    mountain: false, containers: true, sign: "HARBOR 09 / LOADING ZONE",
+    containers: true, sign: "HARBOR 09 / LOADING ZONE",
   },
 };
 const INITIAL_HUD = { kills: 0, health: 100, ammo: MAG_SIZE, ammoMax: MAG_SIZE, weapon: "m4", seconds: MISSION_TIME, accuracy: 0, stamina: 100, heading: "N", radar: [], nearSupply: false, nearHouse: false, nearIntel: false, nearDefense: false, nearWeapon: "", vehicleLabel: "", progress: 0, target: 20, teamSize: 1, reloading: false };
@@ -262,8 +266,8 @@ function createHouse(scene, surfaces, textures, x, z, index, width = 6.6, depth 
   const house = new THREE.Group();
   house.position.set(x, 0, z);
   scene.add(house);
-  const wallMat = style === "port" ? textures.metal : style === "ridge" ? textures.wood : index % 2 ? textures.plasterWarm : textures.plaster;
-  const woodMat = style === "port" ? textures.metal : index % 2 ? textures.woodLight : textures.wood;
+  const wallMat = style === "port" ? textures.corrugated : style === "ridge" ? textures.wood : index % 2 ? textures.plasterWarm : textures.plaster;
+  const woodMat = style === "port" ? textures.corrugated : index % 2 ? textures.woodLight : textures.wood;
   const wallHeight = 3.15;
   const doorWidth = 1.05;
   const frontZ = depth / 2;
@@ -351,7 +355,7 @@ function createHouse(scene, surfaces, textures, x, z, index, width = 6.6, depth 
   const roofGeometry = style === "port"
     ? new THREE.BoxGeometry(width + 0.4, 0.34, depth + 0.6)
     : new THREE.ExtrudeGeometry(gable, { depth: depth + 0.6, bevelEnabled: false });
-  const roofMaterial = style === "port" ? textures.metal : style === "ridge" ? textures.sandbag : textures.roof;
+  const roofMaterial = style === "port" ? textures.corrugated : style === "ridge" ? textures.sandbag : textures.roof;
   const roofY = style === "port" ? wallHeight + 0.38 : wallHeight + 0.16;
   const roofZ = style === "port" ? 0 : -depth / 2 - 0.3;
   const roof = addMesh(house, roofGeometry, roofMaterial, [0, roofY, roofZ], { shotSurface: true, surfaces });
@@ -510,6 +514,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     if (!mount) return undefined;
     const activeMap = selectedMapMeta;
     let renderer;
+    let disposed = false;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     } catch {
@@ -525,7 +530,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     updateRenderResolution();
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.08;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "combat-canvas";
@@ -535,6 +540,22 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(activeMap.sky);
     scene.fog = new THREE.Fog(activeMap.fog, activeMap.fogFar * 0.38, activeMap.fogFar);
+    let backgroundTexture = null;
+    let environmentTarget = null;
+    const hdrLoader = new RGBELoader();
+    hdrLoader.load(activeMap.environment, (hdr) => {
+      if (disposed) { hdr.dispose(); return; }
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+      environmentTarget = pmrem.fromEquirectangular(hdr);
+      pmrem.dispose();
+      backgroundTexture = hdr;
+      scene.background = hdr;
+      scene.environment = environmentTarget.texture;
+      scene.backgroundIntensity = 0.88;
+      scene.environmentIntensity = activeMap.id === "port" ? 0.46 : 0.58;
+    }, undefined, () => {});
     const camera = new THREE.PerspectiveCamera(72, mount.clientWidth / mount.clientHeight, 0.1, 260);
     camera.position.set(0, PLAYER_EYE_HEIGHT, 14.5);
     camera.rotation.order = "YXZ";
@@ -549,6 +570,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       plasterWarm: createTextureMaterial("plaster", 392, { repeatX: 2.4, repeatY: 1.8, tint: 0xb3a58a, roughness: 0.96 }),
       wood: createTextureMaterial("timber", 128, { repeatX: 1.6, repeatY: 1.2, roughness: 0.91 }),
       woodLight: createTextureMaterial("timber", 645, { repeatX: 1.8, repeatY: 1.3, tint: 0xa88a63, roughness: 0.92 }),
+      corrugated: createTextureMaterial("metal", 773, { repeatX: 2.5, repeatY: 1.7, metalness: 0.48, roughness: 0.72 }),
       roof: createTextureMaterial("roof", 941, { repeatX: 1.7, repeatY: 1.8, side: THREE.DoubleSide, roughness: 0.86 }),
       sandbag: createTextureMaterial("sandbag", 241, { repeatX: 1.7, repeatY: 0.8, roughness: 1 }),
       metal: createTextureMaterial("metal", 774, { repeatX: 1, repeatY: 1, metalness: 0.46, roughness: 0.58 }),
@@ -556,9 +578,46 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     };
     Object.values(textures).forEach((material) => { if (material.map) material.map.anisotropy = maxAnisotropy; });
 
-    scene.add(new THREE.HemisphereLight(activeMap.id === "port" ? 0x9bb9ce : 0xc5d9df, activeMap.id === "port" ? 0x1b282b : 0x3b3227, 2.05));
-    scene.add(new THREE.AmbientLight(activeMap.id === "port" ? 0x637d89 : 0x88938e, 0.68));
-    const sun = new THREE.DirectionalLight(activeMap.id === "port" ? 0x8fb9d5 : activeMap.id === "highlands" ? 0xc8d4df : 0xffd2a0, activeMap.id === "port" ? 1.4 : 3.1);
+    const containerMaterials = activeMap.containers ? [
+      new THREE.MeshStandardMaterial({ color: 0x566b64, metalness: 0.5, roughness: 0.76 }),
+      new THREE.MeshStandardMaterial({ color: 0x77704f, metalness: 0.46, roughness: 0.78 }),
+    ] : [];
+    const textureLoader = new THREE.TextureLoader();
+    const loadScannedMaterial = (asset, materials, repeat) => {
+      if (!materials.length) return;
+      const assetBase = `/assets/fps/polyhaven/${asset}/${asset}`;
+      const loadChannel = (channel, suffix, colorSpace) => {
+        textureLoader.load(`${assetBase}_${suffix}_1k.jpg`, (loaded) => {
+          if (disposed) { loaded.dispose(); return; }
+          loaded.colorSpace = colorSpace;
+          loaded.wrapS = THREE.RepeatWrapping;
+          loaded.wrapT = THREE.RepeatWrapping;
+          loaded.repeat.set(repeat[0], repeat[1]);
+          loaded.anisotropy = Math.min(8, maxAnisotropy);
+          for (const material of materials) {
+            const previous = material[channel];
+            material[channel] = loaded;
+            if (previous && previous !== loaded) previous.dispose();
+            material.needsUpdate = true;
+          }
+        }, undefined, () => {});
+      };
+      loadChannel("map", "diff", THREE.SRGBColorSpace);
+      loadChannel("normalMap", "nor_gl", THREE.NoColorSpace);
+    };
+    loadScannedMaterial(activeMap.groundAsset, [textures.grass], [56, 56]);
+    loadScannedMaterial("asphalt_02", [textures.road], [2, 46]);
+    loadScannedMaterial("oak_wood_planks", [textures.wood, textures.woodLight], [1.8, 1.3]);
+    if (activeMap.houseStyle === "village") {
+      loadScannedMaterial("rough_plaster_03", [textures.plaster, textures.plasterWarm], [2, 1.5]);
+    }
+    if (activeMap.containers) {
+      loadScannedMaterial("corrugated_iron_02", [textures.corrugated, ...containerMaterials], [2.5, 1.7]);
+    }
+
+    scene.add(new THREE.HemisphereLight(activeMap.id === "port" ? 0x9bb9ce : 0xc5d9df, activeMap.id === "port" ? 0x1b282b : 0x3b3227, 1.15));
+    scene.add(new THREE.AmbientLight(activeMap.id === "port" ? 0x637d89 : 0x88938e, 0.28));
+    const sun = new THREE.DirectionalLight(activeMap.id === "port" ? 0x8fb9d5 : activeMap.id === "highlands" ? 0xc8d4df : 0xffd2a0, activeMap.id === "port" ? 1.05 : 2.25);
     sun.position.set(activeMap.id === "port" ? -10 : -24, 34, activeMap.id === "highlands" ? -12 : 15);
     sun.castShadow = true;
     sun.shadow.mapSize.set(512, 512);
@@ -646,10 +705,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       playerBlockers.push({ type: "house", ...bounds });
     }
     if (activeMap.containers) {
-      const containerMaterials = [
-        new THREE.MeshStandardMaterial({ color: 0x566b64, metalness: 0.62, roughness: 0.7 }),
-        new THREE.MeshStandardMaterial({ color: 0x77704f, metalness: 0.56, roughness: 0.72 }),
-      ];
       const ribGeometry = new THREE.BoxGeometry(0.055, 2.55, 0.055);
       const containerPlacements = [[-7.8, -6, 0], [7.8, -6, 1], [-7.8, -30, 1], [7.8, -30, 0], [-7.8, -54, 0], [7.8, -54, 1], [-7.8, -78, 1], [7.8, -78, 0], [-7.8, -102, 0], [7.8, -102, 1], [-7.8, -126, 1], [7.8, -126, 0], [-7.8, -150, 0], [7.8, -150, 1], [-7.8, -174, 1], [7.8, -174, 0], [-7.8, -198, 0], [7.8, -198, 1]];
       for (const [x, z, palette] of containerPlacements) {
@@ -657,7 +712,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         container.position.set(x, 0, z);
         scene.add(container);
         addWorld(container, new THREE.BoxGeometry(2.15, 2.65, 7.3), containerMaterials[palette], [0, 1.36, 0], { shotSurface: true, castShadow: false });
-        addWorld(container, new THREE.BoxGeometry(2.2, 0.11, 7.35), textures.metal, [0, 2.72, 0], { castShadow: false });
+        addWorld(container, new THREE.BoxGeometry(2.2, 0.11, 7.35), textures.corrugated, [0, 2.72, 0], { castShadow: false });
         const ribs = new THREE.InstancedMesh(ribGeometry, containerMaterials[palette], 28);
         const ribTransform = new THREE.Object3D();
         let ribIndex = 0;
@@ -756,14 +811,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       leaves.instanceMatrix.needsUpdate = true;
       leaves.computeBoundingSphere();
     }
-    if (activeMap.mountain) {
-      const rock = new THREE.MeshStandardMaterial({ color: 0x575951, roughness: 0.98, flatShading: true });
-      for (const [x, z, size] of [[-22, -7, 9], [22, -17, 11], [-24, -34, 13], [24, -48, 10], [-20, -63, 12], [21, -78, 14], [-24, -96, 13], [23, -108, 11]]) {
-        const peak = addWorld(scene, new THREE.ConeGeometry(size * 0.62, size * 1.55, 7), rock, [x, size * 0.62, z], { castShadow: false, receiveShadow: false });
-        peak.rotation.z = (x < 0 ? -1 : 1) * 0.055;
-      }
-    }
-
     const lampMat = new THREE.MeshStandardMaterial({ color: 0x303a3b, metalness: 0.7, roughness: 0.45 });
     const lampGlow = new THREE.MeshStandardMaterial({ color: 0xffd6a1, emissive: 0xffa65b, emissiveIntensity: 2.8 });
     const lampOff = new THREE.MeshStandardMaterial({ color: 0x514b3e, emissive: 0x15130d, emissiveIntensity: 0.2 });
@@ -1730,7 +1777,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     let roundStartedAt = 0;
     let phaseValue = "ready";
     let pointerLocked = false;
-    let disposed = false;
     let reloading = false;
     const ammoBoxUsed = new Set();
     let mouseHeld = false;
@@ -3228,7 +3274,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           }
         }
       });
+      backgroundTexture?.dispose();
+      environmentTarget?.dispose();
       Object.values(textures).forEach((material) => { if (material.map) material.map.dispose(); material.dispose(); });
+      containerMaterials.forEach((material) => material.dispose());
       Object.values(enemyMaterials).forEach((material) => { if (material.map) material.map.dispose(); material.dispose(); });
       Object.values(weaponMaterials).forEach((material) => material.dispose());
       objectiveGlow.dispose(); objectiveMetal.dispose();
@@ -3551,11 +3600,11 @@ function MapSelectionPage({ playerName, selectedMap, selectedMission, onSelectMa
     <main className="map-select-shell">
       <header className="map-select-header">
         <div className="operation-brand"><span className="operation-brand-mark">J</span><div><b>JACOB</b><span>FRONTLINE</span></div></div>
-        <div className="map-select-status"><i /> AI SQUAD + 8-PLAYER CO-OP <b>AUTO-MATCH BY MAP + MISSION</b></div>
+        <div className="map-select-status"><i /> SQUAD + 8-PLAYER CO-OP <b>AUTO-MATCH BY MAP + MISSION</b></div>
         <div className="map-select-account"><span>OPERATOR <b>{playerName}</b></span><button type="button" onClick={onLogout}>SIGN OUT</button></div>
       </header>
       <section className="map-select-content">
-        <div className="map-select-intro"><div><span className="map-select-kicker"><i /> CO-OP OPERATIONS / QUICK MATCH</span><h1>CHOOSE YOUR<br /><em>DEPLOYMENT.</em></h1><p>Pumili ng lugar at mission. May tatlong AI squadmates ka kahit wala pang online na operator.</p></div><div className="map-select-coordinates"><span>ACTIVE OPERATOR</span><b>{playerName.toUpperCase()}</b><small>3 AI SQUADMATES / UP TO 8 ONLINE OPERATORS</small></div></div>
+        <div className="map-select-intro"><div><span className="map-select-kicker"><i /> CO-OP OPERATIONS / QUICK MATCH</span><h1>CHOOSE YOUR<br /><em>DEPLOYMENT.</em></h1><p>Pumili ng lugar at mission. May tatlong squadmates ka kahit wala pang online na operator.</p></div><div className="map-select-coordinates"><span>ACTIVE OPERATOR</span><b>{playerName.toUpperCase()}</b><small>3 SQUADMATES / UP TO 8 ONLINE OPERATORS</small></div></div>
         <div className="map-cards">
           {Object.values(MAPS).map((map) => (
             <button key={map.id} type="button" className={`map-card map-card-${map.id}${selectedMap === map.id ? " selected" : ""}`} onClick={() => onSelectMap(map.id)} aria-pressed={selectedMap === map.id}>

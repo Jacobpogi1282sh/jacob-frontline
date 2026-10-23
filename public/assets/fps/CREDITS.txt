@@ -6,6 +6,23 @@ File: human-soldier-base.glb
 
 The game adds original camouflage clothing, plate carrier equipment, and reload props to the CC0 human base mesh.
 
+Photographic environments and scanned surface materials (not generative-AI artwork)
+Library: Poly Haven
+License: CC0 1.0 Universal (public domain dedication)
+Environment panoramas:
+- Citrus Orchard Road (Pure Sky): https://polyhaven.com/a/citrus_orchard_road_puresky
+- Fouriesburg Mountain Cloudy: https://polyhaven.com/a/fouriesburg_mountain_cloudy
+- Industrial Sunset 02 (Pure Sky): https://polyhaven.com/a/industrial_sunset_02_puresky
+Scanned PBR surfaces:
+- Forest Ground 05: https://polyhaven.com/a/forest_ground_05
+- Rocky Terrain 02: https://polyhaven.com/a/rocky_terrain_02
+- Concrete Rock Path: https://polyhaven.com/a/concrete_rock_path
+- Asphalt 02: https://polyhaven.com/a/asphalt_02
+- Rough Plaster 03: https://polyhaven.com/a/rough_plaster_03
+- Corrugated Iron 02: https://polyhaven.com/a/corrugated_iron_02
+- Oak Wood Planks: https://polyhaven.com/a/oak_wood_planks
+The soldier actors use the same authored CC0 human mesh. Their squad behavior is game code, not generated character artwork.
+
 M4A1 3D model and PBR textures
 Author: nisu
 License: CC0 / public domain
