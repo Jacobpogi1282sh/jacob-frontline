@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { clone as cloneSkinnedScene } from "three/addons/utils/SkeletonUtils.js";
@@ -522,9 +523,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       return undefined;
     }
 
-    let renderScale = (navigator.hardwareConcurrency || 8) <= 4 ? 0.78 : 0.9;
+    const lowPowerDevice = (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 4;
+    let renderScale = lowPowerDevice ? 0.68 : 0.82;
+    const minimumRenderScale = lowPowerDevice ? 0.48 : 0.56;
+    const maximumRenderScale = lowPowerDevice ? 0.8 : 0.98;
     const updateRenderResolution = () => {
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1) * renderScale);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1 : 1.2) * renderScale);
       renderer.setSize(mount.clientWidth, mount.clientHeight, false);
     };
     updateRenderResolution();
@@ -1044,7 +1048,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       vestBack: new THREE.MeshStandardMaterial({ color: 0x30382f, roughness: 0.98 }),
       friendlyVestBack: new THREE.MeshStandardMaterial({ color: 0x344541, roughness: 0.98 }),
       friendlyPatch: new THREE.MeshStandardMaterial({ color: 0x9fb5aa, roughness: 0.88 }),
-      skin: createSkinMaterial(),
+      skin: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.84, metalness: 0 }),
+      handSkin: createSkinMaterial(),
       helmet: new THREE.MeshStandardMaterial({ color: 0x45513f, roughness: 0.86 }),
       friendlyHelmet: new THREE.MeshStandardMaterial({ color: 0x52665e, roughness: 0.88 }),
       goggles: new THREE.MeshStandardMaterial({ color: 0x171f22, metalness: 0.36, roughness: 0.25 }),
@@ -1061,8 +1066,38 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       opticGlass: new THREE.MeshStandardMaterial({ color: 0x315b57, emissive: 0x15312c, emissiveIntensity: 0.18, metalness: 0.3, roughness: 0.16 }),
       akWood: new THREE.MeshStandardMaterial({ color: 0x744a27, roughness: 0.82 }),
       akWoodEdge: new THREE.MeshStandardMaterial({ color: 0x94633a, roughness: 0.78 }),
+      akWeaponMetal: new THREE.MeshStandardMaterial({ color: 0x202522, metalness: 0.84, roughness: 0.42, envMapIntensity: 1.15 }),
+      akWeaponWood: textures.wood,
       groundShadow: new THREE.MeshBasicMaterial({ color: 0x09100f, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }),
     };
+    textureLoader.load("/assets/fps/skins/mindfront_aksel_skin/Aksel_Skin_diffuse.png", (loaded) => {
+      if (disposed) { loaded.dispose(); return; }
+      loaded.colorSpace = THREE.SRGBColorSpace;
+      loaded.anisotropy = Math.min(4, maxAnisotropy);
+      const previous = enemyMaterials.skin.map;
+      enemyMaterials.skin.map = loaded;
+      enemyMaterials.skin.needsUpdate = true;
+      previous?.dispose();
+    }, undefined, () => {});
+    textureLoader.load("/assets/fps/skins/mindfront_aksel_skin/Aksel_Skin_NRM.png", (loaded) => {
+      if (disposed) { loaded.dispose(); return; }
+      loaded.anisotropy = Math.min(4, maxAnisotropy);
+      enemyMaterials.skin.normalMap = loaded;
+      enemyMaterials.skin.normalScale.set(0.48, 0.48);
+      enemyMaterials.skin.needsUpdate = true;
+    }, undefined, () => {});
+    textureLoader.load("/assets/fps/polyhaven/cotton_jersey/cotton_jersey_nor_gl_1k.jpg", (loaded) => {
+      if (disposed) { loaded.dispose(); return; }
+      loaded.wrapS = THREE.RepeatWrapping;
+      loaded.wrapT = THREE.RepeatWrapping;
+      loaded.repeat.set(6, 6);
+      loaded.anisotropy = Math.min(4, maxAnisotropy);
+      [enemyMaterials.uniform, enemyMaterials.friendlyUniform].forEach((material) => {
+        material.normalMap = loaded;
+        material.normalScale.set(0.16, 0.16);
+        material.needsUpdate = true;
+      });
+    }, undefined, () => {});
     const weaponDropRingGeometry = new THREE.RingGeometry(0.31, 0.42, 20);
     const weaponDropRingMaterial = new THREE.MeshBasicMaterial({ color: 0x88c9a7, transparent: true, opacity: 0.48, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     const bodyClothesGeometry = {
@@ -1174,6 +1209,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       enemy.userData.detailedRifleLoaded = true;
     };
     let ak47Template = null;
+    let detailedAK47Template = null;
     const buildAK47Template = () => {
       if (ak47Template) return ak47Template;
       const model = new THREE.Group();
@@ -1261,9 +1297,129 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       ak47Template = model;
       return model;
     };
+    const createDetailedAK47Template = (source) => {
+      let sourceMesh = null;
+      source.traverse((part) => { if (!sourceMesh && part.isMesh) sourceMesh = part; });
+      if (!sourceMesh) return null;
+      const sourceGeometry = sourceMesh.geometry;
+      const positions = sourceGeometry.getAttribute("position");
+      if (!positions || positions.count < 3) return null;
+      sourceGeometry.computeBoundingBox();
+      const center = sourceGeometry.boundingBox.getCenter(new THREE.Vector3());
+      const size = sourceGeometry.boundingBox.getSize(new THREE.Vector3());
+      const normalizationScale = 1.55 / Math.max(size.z, 0.001);
+      const normals = sourceGeometry.getAttribute("normal");
+      const parts = {
+        steel: { positions: [], normals: [], uvs: [] },
+        wood: { positions: [], normals: [], uvs: [] },
+        magazine: { positions: [], normals: [], uvs: [] },
+      };
+      const normalizedVertex = (target, vertexIndex) => {
+        const sourceX = positions.getX(vertexIndex);
+        const sourceY = positions.getY(vertexIndex);
+        const sourceZ = positions.getZ(vertexIndex);
+        const x = -(sourceX - center.x) * normalizationScale;
+        const y = (sourceY - center.y) * normalizationScale;
+        const z = -(sourceZ - center.z) * normalizationScale;
+        target.positions.push(x, y, z);
+        if (normals) target.normals.push(-normals.getX(vertexIndex), normals.getY(vertexIndex), -normals.getZ(vertexIndex));
+        target.uvs.push(z * 1.45, x * 6);
+      };
+      for (let face = 0; face < positions.count; face += 3) {
+        const centerY = (positions.getY(face) + positions.getY(face + 1) + positions.getY(face + 2)) / 3;
+        const centerZ = (positions.getZ(face) + positions.getZ(face + 1) + positions.getZ(face + 2)) / 3;
+        const magazine = centerY < -0.48 && centerZ > -1.2 && centerZ < 0.2;
+        const wood = !magazine && (
+          (centerZ < -3.05 && centerY > 0.25)
+          || (centerZ > 1.55 && centerZ < 3.3 && centerY > 0.35)
+          || (centerY < -0.45 && centerZ > 0.35 && centerZ < 1.3)
+        );
+        const target = parts[magazine ? "magazine" : wood ? "wood" : "steel"];
+        normalizedVertex(target, face);
+        normalizedVertex(target, face + 1);
+        normalizedVertex(target, face + 2);
+      }
+      const meshFrom = (name, data, material) => {
+        if (!data.positions.length) return null;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(data.positions, 3));
+        if (data.normals.length) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(data.normals, 3));
+        else geometry.computeVertexNormals();
+        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(data.uvs, 2));
+        geometry.computeBoundingSphere();
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = name;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.userData.sharedAsset = true;
+        return mesh;
+      };
+      const model = new THREE.Group();
+      model.name = "ak47-real-cc0-model";
+      const steelMesh = meshFrom("ak47-steel", parts.steel, enemyMaterials.akWeaponMetal);
+      const woodMesh = meshFrom("ak47-wood-furniture", parts.wood, enemyMaterials.akWeaponWood);
+      if (steelMesh) model.add(steelMesh);
+      if (woodMesh) model.add(woodMesh);
+      const magazine = new THREE.Group();
+      magazine.name = "ak47-magazine";
+      const magazineMesh = meshFrom("ak47-magazine-geometry", parts.magazine, enemyMaterials.dark);
+      if (magazineMesh) magazine.add(magazineMesh);
+      model.add(magazine);
+      return model;
+    };
+
+    const disposeLoadedAKSource = (source) => {
+      const geometries = new Set();
+      const materials = new Set();
+      source.traverse((part) => {
+        if (part.geometry && !geometries.has(part.geometry)) {
+          geometries.add(part.geometry);
+          part.geometry.dispose();
+        }
+        const sourceMaterials = Array.isArray(part.material) ? part.material : [part.material];
+        sourceMaterials.forEach((material) => {
+          if (material && !materials.has(material)) {
+            materials.add(material);
+            material.dispose();
+          }
+        });
+      });
+    };
+    const disposeAKTemplateGeometry = (template) => {
+      const geometries = new Set();
+      template?.traverse((part) => {
+        if (part.geometry && !geometries.has(part.geometry)) {
+          geometries.add(part.geometry);
+          part.geometry.dispose();
+        }
+      });
+    };
+    const upgradeAK47Appearance = (weapon, enemy = null) => {
+      if (!weapon || !detailedAK47Template || weapon.userData.detailedAppearance) return;
+      for (const child of weapon.children.slice()) {
+        if (child.userData.keepOnWeaponVisualSwap) continue;
+        weapon.remove(child);
+        child.traverse((part) => {
+          if (part.isMesh && !part.userData.sharedAsset) part.geometry?.dispose();
+        });
+      }
+      const detailedAppearance = detailedAK47Template.clone(true);
+      weapon.add(detailedAppearance);
+      weapon.userData.detachableMagazine = detailedAppearance.getObjectByName("ak47-magazine");
+      weapon.userData.detailedAppearance = true;
+      detailedAppearance.traverse((part) => {
+        if (!part.isMesh) return;
+        part.userData.sharedAsset = true;
+        if (enemy) {
+          part.userData.enemyRoot = enemy;
+          part.userData.bodyPart = "body";
+        }
+      });
+    };
     const cloneAK47 = (enemy = null) => {
-      const model = buildAK47Template().clone(true);
+      const model = (detailedAK47Template || buildAK47Template()).clone(true);
       model.userData.detachableMagazine = model.getObjectByName("ak47-magazine");
+      model.userData.detailedAppearance = Boolean(detailedAK47Template);
       model.traverse((part) => {
         if (!part.isMesh) return;
         part.castShadow = false;
@@ -1519,6 +1675,28 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       remotePlayers.forEach(attachDetailedRifle);
       squadBots.forEach(attachDetailedRifle);
     });
+
+    const ak47Loader = new OBJLoader();
+    ak47Loader.load("/assets/fps/ak47-source/highpoly_ak47.obj", (source) => {
+      if (disposed) {
+        disposeLoadedAKSource(source);
+        return;
+      }
+      detailedAK47Template = createDetailedAK47Template(source);
+      disposeLoadedAKSource(source);
+      if (!detailedAK47Template) return;
+      enemies.forEach((enemy) => upgradeAK47Appearance(enemy.userData.ak47Model, enemy));
+      squadBots.forEach((ally) => upgradeAK47Appearance(ally.userData.ak47Model, ally));
+      remotePlayers.forEach((remote) => upgradeAK47Appearance(remote.userData.ak47Model, remote));
+      weaponDrops.forEach((drop) => upgradeAK47Appearance(drop.weapon));
+      upgradeAK47Appearance(ak47Model);
+      if (ak47Model.userData.detachableMagazine) {
+        akMagazineMesh = ak47Model.userData.detachableMagazine;
+        akMagazineHome.copy(akMagazineMesh.position);
+      }
+      disposeAKTemplateGeometry(ak47Template);
+      ak47Template = null;
+    }, undefined, () => {});
 
     const setEnemyMotion = (enemy, motion) => {
       if (enemy.userData.motion === motion) return;
@@ -1823,7 +2001,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       optic: new THREE.MeshStandardMaterial({ color: 0x141b1c, metalness: 0.5, roughness: 0.2 }),
       opticGlass: new THREE.MeshStandardMaterial({ color: 0x71d6d1, emissive: 0x208b85, emissiveIntensity: 0.5, metalness: 0.25, roughness: 0.12 }),
       glove: new THREE.MeshStandardMaterial({ color: 0x353e38, roughness: 0.95 }),
-      skin: enemyMaterials.skin,
+      skin: enemyMaterials.handSkin,
       nail: new THREE.MeshStandardMaterial({ color: 0xa98270, roughness: 0.66 }),
       sleeve: new THREE.MeshStandardMaterial({ color: 0x68715f, roughness: 0.98 }),
       flash: new THREE.MeshBasicMaterial({ color: 0xffd39a, transparent: true, opacity: 0.94, blending: THREE.AdditiveBlending, depthWrite: false }),
@@ -1965,11 +2143,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     ak47Model.scale.setScalar(0.62);
     ak47Model.visible = false;
     baseWeapon.add(ak47Model);
-    const akMagazineMesh = ak47Model.userData.detachableMagazine;
-    const akMagazineHome = akMagazineMesh.position.clone();
+    let akMagazineMesh = ak47Model.userData.detachableMagazine;
+    let akMagazineHome = akMagazineMesh.position.clone();
 
     const buildWeaponEffects = (parent, muzzlePosition, casingPosition) => {
       const flash = new THREE.Group();
+      flash.userData.keepOnWeaponVisualSwap = true;
       const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), weaponMaterials.flash);
       core.scale.set(0.7, 0.7, 1.7);
       flash.add(core);
@@ -1983,9 +2162,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       const light = { intensity: 0 };
       const muzzle = new THREE.Object3D();
       muzzle.position.set(...muzzlePosition);
+      muzzle.userData.keepOnWeaponVisualSwap = true;
       parent.add(muzzle);
       const casing = new THREE.Object3D();
       casing.position.set(...casingPosition);
+      casing.userData.keepOnWeaponVisualSwap = true;
       parent.add(casing);
       return { flash, light, muzzle, casing };
     };
@@ -2024,7 +2205,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     pistolModel.position.set(0.182, -0.051, -0.282);
     pistolModel.scale.setScalar(0.24);
     const pistolEffects = buildWeaponEffects(pistolModel, [0.2, -0.06, -0.94], [0.35, -0.03, -0.56]);
-    const ak47Effects = buildWeaponEffects(ak47Model, [0, 0.01, -1.1], [0.1, 0.01, -0.08]);
+    const ak47Effects = buildWeaponEffects(ak47Model, [0, 0.01, -0.95], [0.1, 0.01, -0.08]);
     const weaponEffects = { m4: rifleEffects, glock: pistolEffects, ak47: ak47Effects };
     let muzzleFlash = rifleEffects.flash;
     let muzzleLight = rifleEffects.light;
@@ -2435,7 +2616,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       const forwardX = -Math.sin(camera.rotation.y);
       const forwardZ = -Math.cos(camera.rotation.y);
       for (const [index, ally] of squadBots.entries()) {
-        ally.userData.mixer?.update(delta);
         let closestEnemy = null;
         let closestDistance = 46;
         for (const enemy of enemies) {
@@ -2464,14 +2644,20 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         if (!closestEnemy) {
           ally.rotation.y = Math.atan2(-forwardX, -forwardZ);
           setEnemyMotion(ally, distanceToPost > 1.2 ? "run" : "idle");
-          poseRiggedSoldier(ally, elapsed + index * 0.23, ally.userData.motion, index * 0.7);
+          if (now - (ally.userData.lastPoseAt || 0) >= 33) {
+            poseRiggedSoldier(ally, elapsed + index * 0.23, ally.userData.motion, index * 0.7);
+            ally.userData.lastPoseAt = now;
+          }
           continue;
         }
         const dx = closestEnemy.position.x - ally.position.x;
         const dz = closestEnemy.position.z - ally.position.z;
         ally.rotation.y = Math.atan2(-dx, -dz);
         setEnemyMotion(ally, distanceToPost > 1.2 ? "run" : "idle");
-        poseRiggedSoldier(ally, elapsed + index * 0.23, ally.userData.motion, index * 0.7);
+        if (now - (ally.userData.lastPoseAt || 0) >= 33) {
+          poseRiggedSoldier(ally, elapsed + index * 0.23, ally.userData.motion, index * 0.7);
+          ally.userData.lastPoseAt = now;
+        }
         if (now < ally.userData.allyFireAt) continue;
         ally.userData.allyFireAt = now + 950 + Math.random() * 700;
         const aim = pointAt(closestEnemy);
@@ -2849,15 +3035,23 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     let renderSamples = 0;
     let renderTimeTotal = 0;
     let lastRenderScale = renderScale;
-    const animate = () => {
+    let lastRenderTimestamp = 0;
+    const targetFrameDuration = 1000 / 60;
+    const animate = (timestamp) => {
       if (disposed) return;
-      const delta = Math.min(clock.getDelta(), 0.04);
-      renderTimeTotal += delta * 1000;
+      if (lastRenderTimestamp && timestamp - lastRenderTimestamp < targetFrameDuration - 0.5) {
+        animationId = requestAnimationFrame(animate);
+        return;
+      }
+      lastRenderTimestamp = timestamp;
+      const frameDelta = clock.getDelta();
+      const delta = Math.min(frameDelta, 0.04);
+      renderTimeTotal += Math.min(frameDelta, 0.12) * 1000;
       renderSamples += 1;
-      if (renderSamples >= 60) {
+      if (renderSamples >= 30) {
         const averageFrameTime = renderTimeTotal / renderSamples;
-        if (averageFrameTime > 21.5 && renderScale > 0.64) renderScale = Math.max(0.64, renderScale - 0.1);
-        else if (averageFrameTime < 16.5 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.035);
+        if (averageFrameTime > 20 && renderScale > minimumRenderScale) renderScale = Math.max(minimumRenderScale, renderScale - 0.085);
+        else if (averageFrameTime < 16.2 && renderScale < maximumRenderScale) renderScale = Math.min(maximumRenderScale, renderScale + 0.035);
         if (renderScale !== lastRenderScale) {
           lastRenderScale = renderScale;
           updateRenderResolution();
@@ -3073,7 +3267,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         baseWeapon.rotation.z = THREE.MathUtils.lerp(baseWeapon.rotation.z, -swayX * 0.8 + recoilRoll * 1.8 - reloadReach * 0.18, 1 - Math.exp(-10 * delta));
 
         if (remainingSeconds === 0) endRound("failed");
-        if (now - lastHudUpdate > 180) { publishHud(); lastHudUpdate = now; }
+      if (now - lastHudUpdate > 320) { publishHud(); lastHudUpdate = now; }
       }
 
       for (const enemy of enemies) {
@@ -3081,7 +3275,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           if (now > enemy.userData.deadAt && !enemy.userData.cleaned) { scene.remove(enemy); enemy.userData.cleaned = true; }
           continue;
         }
-        enemy.userData.mixer?.update(delta);
         if (phaseValue === "playing") {
           const dx = camera.position.x - enemy.position.x;
           const dz = camera.position.z - enemy.position.z;
@@ -3101,7 +3294,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           setEnemyMotion(enemy, approach ? "run" : distance > 2.2 ? "walk" : "idle");
           const gait = elapsed * (approach ? 8.8 : 5.1) + enemy.userData.phase;
           enemy.position.y = approach ? Math.abs(Math.sin(gait)) * 0.025 : Math.sin(gait) * 0.012;
-          const rigUpdateInterval = distance > 82 ? 180 : distance > 42 ? 72 : 0;
+          const rigUpdateInterval = distance > 82 ? 220 : distance > 30 ? 80 : distance > 10 ? 32 : 0;
           if (!rigUpdateInterval || now - (enemy.userData.lastPoseAt || 0) >= rigUpdateInterval) {
             poseRiggedSoldier(enemy, elapsed, enemy.userData.motion, enemy.userData.phase);
             enemy.userData.limbs.forEach(({ leg, arm, side }) => {
@@ -3177,8 +3370,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             if (tailRotorCopy) tailRotorCopy.rotation.z += 20 * delta;
           }
         }
-        remote.userData.mixer?.update(delta);
-        poseRiggedSoldier(remote, elapsed, remote.userData.targetMoving ? "run" : "idle", (remote.userData.remoteId || "").length);
+        if (now - (remote.userData.lastPoseAt || 0) >= 33) {
+          poseRiggedSoldier(remote, elapsed, remote.userData.targetMoving ? "run" : "idle", (remote.userData.remoteId || "").length);
+          remote.userData.lastPoseAt = now;
+        }
       }
 
       for (let index = effects.length - 1; index >= 0; index -= 1) {
@@ -3491,7 +3686,7 @@ function LoginPage({ onAuthenticated }) {
         <div className="login-road" />
         <div className="login-radar"><i /><i /><i /><b /></div>
         <div className="login-hero-brand"><span>J</span><div><b>JACOB</b><small>TACTICAL FPS</small></div></div>
-        <div className="login-hero-copy"><small><i /> INDEPENDENT CAMPAIGN / 3 OPERATIONS</small><h1>TAKE BACK<br /><em>THE FRONTLINE</em></h1><p>Mag-deploy sa tatlong mapa, pumasok sa mga gusali, at piliin ang tamang armas para sa bawat laban.</p></div>
+        <div className="login-hero-copy"><small><i /> INDEPENDENT CAMPAIGN / 3 OPERATIONS</small><h1>TAKE BACK<br /><em>THE FRONTLINE</em></h1><p>Libreng browser-based tactical FPS: tatlong mapa, solo missions, online co-op, at M4A1, Glock 17, at AK-47.</p></div>
         <div className="login-hero-footer"><span>TACTICAL SIMULATION</span><b>14°35' N <i /> 120°58' E</b></div>
       </section>
       <section className="login-card">
@@ -3512,7 +3707,7 @@ function LoginPage({ onAuthenticated }) {
         <div className="login-divider"><span>ACCESS DETAILS</span></div>
         <p className="login-local-note">Server-side scrypt password hash at HttpOnly session. Gumamit ng localhost o HTTPS para sa personal account. Pampublikong demo lang ang demo login.</p>
       </section>
-      <div className="login-side-note"><span>SECTOR 04 <i /> SAN ISIDRO</span><b>MISSION ACCESS<br />RESTRICTED</b><small>TACTICAL TRAINING · AI SQUAD / ONLINE CO-OP</small></div>
+      <div className="login-side-note"><span>SECTOR 04 <i /> SAN ISIDRO</span><b>MISSION ACCESS<br />RESTRICTED</b><small>TACTICAL TRAINING · FIRETEAM / ONLINE CO-OP</small></div>
       </div>
     </main>
   );
