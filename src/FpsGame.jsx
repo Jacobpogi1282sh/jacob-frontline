@@ -509,21 +509,115 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
   const [networkStatus, setNetworkStatus] = useState("CONNECTING");
   const launchRef = useRef(null);
   const soundRef = useRef(true);
+  const [touchControlsEnabled, setTouchControlsEnabled] = useState(false);
+  const touchControlsRef = useRef(false);
+  const touchInputRef = useRef({ moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, jump: false, vehicleUp: false, vehicleDown: false });
+  const touchActionsRef = useRef({});
+  const joystickPointerRef = useRef(null);
+  const lookPointerRef = useRef(null);
+
+  const clearTouchInput = () => {
+    Object.assign(touchInputRef.current, { moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, jump: false, vehicleUp: false, vehicleDown: false });
+    joystickPointerRef.current = null;
+    lookPointerRef.current = null;
+    const thumb = stageRef.current?.querySelector(".touch-stick-thumb");
+    if (thumb) thumb.style.transform = "translate(0, 0)";
+    touchActionsRef.current.aim?.(false);
+  };
+  const moveTouchStick = (event) => {
+    if (joystickPointerRef.current !== event.pointerId) return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const radius = Math.min(bounds.width, bounds.height) * 0.34;
+    let dx = event.clientX - (bounds.left + bounds.width / 2);
+    let dy = event.clientY - (bounds.top + bounds.height / 2);
+    const distance = Math.hypot(dx, dy);
+    if (distance > radius) { dx = dx / distance * radius; dy = dy / distance * radius; }
+    const input = touchInputRef.current;
+    input.moveX = Math.abs(dx / radius) < 0.1 ? 0 : dx / radius;
+    input.moveY = Math.abs(dy / radius) < 0.1 ? 0 : -dy / radius;
+    const thumb = event.currentTarget.querySelector(".touch-stick-thumb");
+    if (thumb) thumb.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  const beginTouchStick = (event) => {
+    if (!touchControlsRef.current || phase !== "playing") return;
+    event.preventDefault();
+    event.stopPropagation();
+    joystickPointerRef.current = event.pointerId;
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is optional. */ }
+    moveTouchStick(event);
+  };
+  const endTouchStick = (event) => {
+    if (joystickPointerRef.current !== event.pointerId) return;
+    joystickPointerRef.current = null;
+    touchInputRef.current.moveX = 0;
+    touchInputRef.current.moveY = 0;
+    if (event.currentTarget.querySelector) {
+      const thumb = event.currentTarget.querySelector(".touch-stick-thumb");
+      if (thumb) thumb.style.transform = "translate(0, 0)";
+    }
+  };
+  const beginTouchLook = (event) => {
+    if (!touchControlsRef.current || phase !== "playing") return;
+    event.preventDefault();
+    lookPointerRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is optional. */ }
+  };
+  const moveTouchLook = (event) => {
+    const pointer = lookPointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    event.preventDefault();
+    const deltaX = event.clientX - pointer.x;
+    const deltaY = event.clientY - pointer.y;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    touchActionsRef.current.look?.(deltaX, deltaY);
+  };
+  const endTouchLook = (event) => {
+    if (lookPointerRef.current?.id === event.pointerId) lookPointerRef.current = null;
+  };
+  const beginTouchHold = (event, action) => {
+    if (!touchControlsRef.current || phase !== "playing") return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is optional. */ }
+    touchInputRef.current[action] = true;
+    event.currentTarget.classList.add("is-pressed");
+    if (action === "aim") touchActionsRef.current.aim?.(true);
+  };
+  const endTouchHold = (event, action) => {
+    event.preventDefault();
+    event.stopPropagation();
+    touchInputRef.current[action] = false;
+    event.currentTarget.classList.remove("is-pressed");
+    if (action === "aim") touchActionsRef.current.aim?.(false);
+  };
+  const runTouchAction = (event, action, value) => {
+    if (!touchControlsRef.current || phase !== "playing") return;
+    event.preventDefault();
+    event.stopPropagation();
+    touchActionsRef.current[action]?.(value);
+  };
 
   useEffect(() => {
     const mount = stageRef.current;
     if (!mount) return undefined;
+    const touchDevice = (navigator.maxTouchPoints || 0) > 0
+      || window.matchMedia?.("(pointer: coarse)").matches
+      || window.innerWidth <= 760;
+    touchControlsRef.current = Boolean(touchDevice);
+    setTouchControlsEnabled(Boolean(touchDevice));
     const activeMap = selectedMapMeta;
     let renderer;
     let disposed = false;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     } catch {
-      setError("Hindi available ang WebGL graphics sa browser na ito. Buksan ang laro sa updated desktop Chrome.");
+      setError("Hindi available ang WebGL sa browser na ito. Gumamit ng updated Chrome sa Android o Safari sa iPhone.");
       return undefined;
     }
 
-    const lowPowerDevice = (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 4;
+    const lowPowerDevice = touchDevice || (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 4;
     let renderScale = lowPowerDevice ? 0.68 : 0.82;
     const minimumRenderScale = lowPowerDevice ? 0.48 : 0.56;
     const maximumRenderScale = lowPowerDevice ? 0.8 : 0.98;
@@ -535,7 +629,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !touchDevice;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "combat-canvas";
     renderer.domElement.setAttribute("aria-label", "Jacob Frontline tactical 3D combat scene");
@@ -2585,6 +2679,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     };
 
     const endRound = (next) => {
+      clearTouchInput();
       changePhase(next);
       mouseHeld = false;
       aimingNow = false;
@@ -2882,6 +2977,21 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       publishHud();
       supplyToastTimeout = window.setTimeout(() => setNotice(""), 2200);
     };
+    touchActionsRef.current = {
+      look: (deltaX, deltaY) => {
+        if (phaseValue !== "playing") return;
+        pitch = THREE.MathUtils.clamp(pitch - deltaY * 0.0034, -1.15, 1.05);
+        if (activeVehicle) {
+          activeVehicle.rotation.y -= deltaX * 0.0032;
+          setVehicleCamera();
+        } else camera.rotation.y -= deltaX * 0.0032;
+      },
+      aim: (enabled) => { aimingNow = Boolean(enabled); setAiming(aimingNow); },
+      reload: () => activeVehicle === apc ? startCannonReload() : startReload(),
+      pickup: resupply,
+      vehicle: interactVehicle,
+      swapWeapon: () => setWeapon(weaponMode === "m4" ? "glock" : weaponMode === "glock" && hasAk47 ? "ak47" : "m4"),
+    };
     const updateDefenseZone = (delta, now) => {
       if (selectedMissionMeta.id !== "defense" || !defenseZone || phaseValue !== "playing") return;
       const withinZone = Math.hypot(camera.position.x - defenseZone.position.x, camera.position.z - defenseZone.position.z) < 5.5;
@@ -2969,15 +3079,19 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         roundStartedAt = performance.now() - elapsedSeconds * 1000;
       }
       changePhase("playing");
-      requestLock();
+      clearTouchInput();
+      if (!touchControlsRef.current) requestLock();
     };
     const pauseGame = () => {
       if (phaseValue !== "playing") return;
       elapsedSeconds = Math.min(selectedMissionMeta.seconds, (performance.now() - roundStartedAt) / 1000);
-      mouseHeld = false; aimingNow = false; setAiming(false);
+      mouseHeld = false;
+      clearTouchInput();
+      aimingNow = false; setAiming(false);
       changePhase("paused");
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
     };
+    const onVisibilityChange = () => { if (document.hidden) pauseGame(); };
     launchRef.current = startGame;
 
     const onPointerLockChange = () => {
@@ -2999,7 +3113,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     };
     const onMouseDown = (event) => {
       if (phaseValue !== "playing") return;
-      if (!pointerLocked) requestLock();
+      if (!pointerLocked && !touchControlsRef.current) requestLock();
       if (event.button === 0) mouseHeld = true;
       if (event.button === 2) { aimingNow = true; setAiming(true); }
     };
@@ -3032,6 +3146,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     document.addEventListener("pointerlockchange", onPointerLockChange);
     document.addEventListener("pointerlockerror", onPointerLockError);
     document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("resize", onResize);
@@ -3060,7 +3175,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       const now = performance.now();
       const elapsed = clock.elapsedTime;
       if (networkSocket?.readyState === WebSocket.OPEN && now - lastNetworkSync > 100) {
-        const movingNow = phaseValue === "playing" && (keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD"));
+        const touchMoving = Math.hypot(touchInputRef.current.moveX, touchInputRef.current.moveY) > 0.06;
+        const movingNow = phaseValue === "playing" && (keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD") || touchMoving);
         const inDefenseZone = phaseValue === "playing" && defenseZone && Math.hypot(camera.position.x - defenseZone.position.x, camera.position.z - defenseZone.position.z) < 5.5;
         const networkY = activeVehicle ? activeVehicle.position.y : parachuteActive ? Math.max(0, camera.position.y - PLAYER_EYE_HEIGHT) : 0;
         networkSocket.send(JSON.stringify({ type: "state", x: camera.position.x, y: networkY, z: camera.position.z, yaw: camera.rotation.y, health, weapon: weaponMode, vehicle: activeVehicle?.userData.kind || null, parachute: parachuteActive, moving: movingNow, zone: Boolean(inDefenseZone) }));
@@ -3072,19 +3188,22 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         remainingSeconds = Math.max(0, Math.ceil(selectedMissionMeta.seconds - elapsedSeconds));
         if (elapsedSeconds >= selectedMissionMeta.seconds) endRound("failed");
 
-        const forwardInput = Number(keys.has("KeyW") || keys.has("ArrowUp")) - Number(keys.has("KeyS") || keys.has("ArrowDown"));
-        const sideInput = Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft"));
-        const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight");
+        const touchInput = touchInputRef.current;
+        const forwardInput = THREE.MathUtils.clamp(Number(keys.has("KeyW") || keys.has("ArrowUp")) - Number(keys.has("KeyS") || keys.has("ArrowDown")) + touchInput.moveY, -1, 1);
+        const sideInput = THREE.MathUtils.clamp(Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft")) + touchInput.moveX, -1, 1);
+        const controlsActive = pointerLocked || touchControlsRef.current;
+        const movementAmount = Math.min(1, Math.hypot(forwardInput, sideInput));
+        const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight") || touchInput.sprint;
         const crouching = keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC");
-        const moving = Boolean(forwardInput || sideInput);
+        const moving = movementAmount > 0.06;
         const isSprinting = moving && sprinting && stamina > 3 && !crouching;
         if (isSprinting) { stamina = Math.max(0, stamina - 31 * delta); staminaRefillDelay = 0.75; }
         else if (staminaRefillDelay > 0) staminaRefillDelay -= delta;
         else stamina = Math.min(100, stamina + 20 * delta);
 
-        if (activeVehicle && pointerLocked) {
+        if (activeVehicle && controlsActive) {
           if (activeVehicle.userData.kind === "apc") {
-            const targetSpeed = forwardInput > 0 ? 9.5 : forwardInput < 0 ? -4.1 : 0;
+            const targetSpeed = forwardInput * (forwardInput >= 0 ? 9.5 : 4.1);
             vehicleSpeed = THREE.MathUtils.lerp(vehicleSpeed, targetSpeed, 1 - Math.exp(-delta * 1.8));
             activeVehicle.rotation.y += sideInput * (0.32 + Math.abs(vehicleSpeed) * 0.035) * delta * (vehicleSpeed < -0.2 ? -1 : 1);
             activeVehicle.userData.cannon.rotation.x = THREE.MathUtils.lerp(activeVehicle.userData.cannon.rotation.x, THREE.MathUtils.clamp(pitch, -0.32, 0.38), 1 - Math.exp(-delta * 7));
@@ -3103,7 +3222,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             activeVehicle.position.addScaledVector(movementForward, helicopterForwardSpeed * delta);
             activeVehicle.position.x = THREE.MathUtils.clamp(activeVehicle.position.x, -48, 48);
             activeVehicle.position.z = THREE.MathUtils.clamp(activeVehicle.position.z, -220, 38);
-            const verticalInput = Number(keys.has("Space")) - Number(keys.has("ControlLeft") || keys.has("ControlRight"));
+            const verticalInput = THREE.MathUtils.clamp(Number(keys.has("Space") || touchInput.jump || touchInput.vehicleUp) - Number(keys.has("ControlLeft") || keys.has("ControlRight") || touchInput.vehicleDown), -1, 1);
             if (verticalInput) activeVehicle.position.y = THREE.MathUtils.clamp(activeVehicle.position.y + verticalInput * 4.1 * delta, 0, 20);
             else activeVehicle.position.y = THREE.MathUtils.lerp(activeVehicle.position.y, 2.8, 1 - Math.exp(-delta * 1.25));
             activeVehicle.rotation.x = THREE.MathUtils.lerp(activeVehicle.rotation.x, -helicopterForwardSpeed * 0.012, 1 - Math.exp(-delta * 2.8));
@@ -3113,14 +3232,14 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             activeVehicle.userData.tailRotor.rotation.z += rotorSpeed * delta * 1.8;
           }
           setVehicleCamera();
-        } else if (pointerLocked && moving) {
+        } else if (controlsActive && moving) {
           camera.getWorldDirection(movementForward);
           movementForward.y = 0;
           movementForward.normalize();
           movementRight.crossVectors(movementForward, camera.up).normalize();
           movementStep.copy(movementForward).multiplyScalar(forwardInput).addScaledVector(movementRight, sideInput).normalize();
           const speed = parachuteActive ? 2.8 : isSprinting ? 8.4 : crouching ? 2.5 : 4.7;
-          movementStep.multiplyScalar(speed * delta);
+          movementStep.multiplyScalar(speed * delta * movementAmount);
           movementFrom.copy(camera.position);
           movementNext.copy(camera.position);
           movementNext.x += movementStep.x;
@@ -3129,7 +3248,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           movementNext.z += movementStep.z;
           if (!playerBlocked(movementFrom, movementNext)) camera.position.z = THREE.MathUtils.clamp(movementNext.z, -214, 38);
         }
-        if (!activeVehicle && !parachuteActive && pointerLocked && keys.has("Space") && camera.position.y <= PLAYER_EYE_HEIGHT + 0.02) jumpVelocity = 5.1;
+        if (!activeVehicle && !parachuteActive && controlsActive && (keys.has("Space") || touchInput.jump) && camera.position.y <= PLAYER_EYE_HEIGHT + 0.02) jumpVelocity = 5.1;
         if (parachuteActive) {
           camera.position.y = Math.max(PLAYER_EYE_HEIGHT, camera.position.y - 2.25 * delta);
           parachuteTemplate.position.set(camera.position.x, camera.position.y - PLAYER_EYE_HEIGHT, camera.position.z);
@@ -3148,7 +3267,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           if (camera.position.y === baseHeight) jumpVelocity = 0;
       } else if (!activeVehicle && !crouching) camera.position.y = THREE.MathUtils.lerp(camera.position.y, PLAYER_EYE_HEIGHT, 1 - Math.exp(-12 * delta));
 
-        if (mouseHeld) {
+        if (mouseHeld || touchInput.fire) {
           if (activeVehicle === apc) fireCannon(now);
           else if (!activeVehicle) fire(now);
         }
@@ -3415,7 +3534,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         pickup.group.rotation.y = Math.sin(elapsed * 0.7 + pickup.phase) * 0.18;
         pickup.group.children[1].position.y = 0.34 + Math.sin(elapsed * 1.8 + pickup.phase) * 0.08;
       }
-      muzzleFlash.visible = now < nextShotAt - 40 && mouseHeld;
+      muzzleFlash.visible = now < nextShotAt - 40 && (mouseHeld || touchInputRef.current.fire);
       muzzleLight.intensity = muzzleFlash.visible ? 35 : 0;
 
       // Let the player glance down toward the vest while reloading without
@@ -3453,9 +3572,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       document.removeEventListener("pointerlockchange", onPointerLockChange);
       document.removeEventListener("pointerlockerror", onPointerLockError);
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("resize", onResize);
+      touchActionsRef.current = {};
+      clearTouchInput();
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
       effects.forEach(removeEffect);
       const releasedMaterials = new Set();
@@ -3500,7 +3622,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
   const closed = phase === "complete" || phase === "failed";
 
   return (
-    <div className="operation-shell">
+    <div className={touchControlsEnabled ? "operation-shell touch-game" : "operation-shell"}>
       <header className="operation-header">
         <div className="operation-brand"><span className="operation-brand-mark">J</span><div><b>JACOB</b><span>FRONTLINE</span></div></div>
         <div className="operation-header-center"><span className="header-live-dot" /> {networkStatus} / SQUAD 4 · {hud.teamSize} ONLINE <i /> {selectedMapMeta.name} <i /> {selectedMissionMeta.name}</div>
@@ -3537,6 +3659,83 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           {notice && <div className="combat-notice">{notice}</div>}
         </>}
 
+        {touchControlsEnabled && phase === "playing" && <div className="touch-controls" role="group" aria-label="Touch game controls">
+          <div
+            className="touch-look-zone"
+            aria-label="Swipe sa kanang bahagi para tumingin"
+            onPointerDown={beginTouchLook}
+            onPointerMove={moveTouchLook}
+            onPointerUp={endTouchLook}
+            onPointerCancel={endTouchLook}
+            onLostPointerCapture={endTouchLook}
+          />
+          <div
+            className="touch-stick-zone"
+            role="group"
+            aria-label="Virtual joystick para gumalaw"
+            onPointerDown={beginTouchStick}
+            onPointerMove={moveTouchStick}
+            onPointerUp={endTouchStick}
+            onPointerCancel={endTouchStick}
+            onLostPointerCapture={endTouchStick}
+          >
+            <span className="touch-stick-label">MOVE</span>
+            <i className="touch-stick-thumb" />
+          </div>
+          <div className="touch-action-grid">
+            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "swapWeapon")} aria-label="Palitan ang armas">SWAP</button>
+            <button
+              type="button"
+              className="touch-action-button touch-action-aim"
+              onPointerDown={(event) => beginTouchHold(event, "aim")}
+              onPointerUp={(event) => endTouchHold(event, "aim")}
+              onPointerCancel={(event) => endTouchHold(event, "aim")}
+              onLostPointerCapture={(event) => endTouchHold(event, "aim")}
+              aria-label="Pindutin at hawakan para mag-aim"
+            >AIM</button>
+            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "reload")} aria-label="Mag-reload">RELOAD</button>
+            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "pickup")} aria-label="Pumulot o mag-resupply">PICKUP</button>
+            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "vehicle")} aria-label="Sumakay o bumaba sa sasakyan">VEH</button>
+            <button
+              type="button"
+              className="touch-action-button touch-action-jump"
+              onPointerDown={(event) => beginTouchHold(event, "jump")}
+              onPointerUp={(event) => endTouchHold(event, "jump")}
+              onPointerCancel={(event) => endTouchHold(event, "jump")}
+              onLostPointerCapture={(event) => endTouchHold(event, "jump")}
+              aria-label="Tumalon o paakyatin ang helicopter"
+            >JUMP/UP</button>
+            <button
+              type="button"
+              className="touch-action-button"
+              onPointerDown={(event) => beginTouchHold(event, "sprint")}
+              onPointerUp={(event) => endTouchHold(event, "sprint")}
+              onPointerCancel={(event) => endTouchHold(event, "sprint")}
+              onLostPointerCapture={(event) => endTouchHold(event, "sprint")}
+              aria-label="Pindutin at hawakan para tumakbo"
+            >RUN</button>
+            <button
+              type="button"
+              className="touch-action-button"
+              onPointerDown={(event) => beginTouchHold(event, "vehicleDown")}
+              onPointerUp={(event) => endTouchHold(event, "vehicleDown")}
+              onPointerCancel={(event) => endTouchHold(event, "vehicleDown")}
+              onLostPointerCapture={(event) => endTouchHold(event, "vehicleDown")}
+              aria-label="Ibaba ang helicopter"
+            >DOWN</button>
+            <button
+              type="button"
+              className="touch-action-button touch-action-fire"
+              onPointerDown={(event) => beginTouchHold(event, "fire")}
+              onPointerUp={(event) => endTouchHold(event, "fire")}
+              onPointerCancel={(event) => endTouchHold(event, "fire")}
+              onLostPointerCapture={(event) => endTouchHold(event, "fire")}
+              aria-label="Pindutin at hawakan para bumaril"
+            >FIRE</button>
+          </div>
+          <span className="touch-look-hint">SWIPE TO LOOK</span>
+        </div>}
+
         <div className="combat-bottomline">
           <div className="health-panel"><div className="health-label"><span>VITALS</span><b>{String(hud.health).padStart(3, "0")}</b></div><div className="health-track"><i style={{ width: `${hud.health}%` }} /></div><div className="stamina-track"><span>STAMINA</span><i><b style={{ width: `${hud.stamina}%` }} /></i></div></div>
           <div className="bottom-objective"><span>TEAM OBJECTIVE</span><b>{closed && phase === "complete" ? "AREA SECURED" : selectedMissionMeta.objective}</b><small>{selectedMissionMeta.id === "assault" ? `${hud.progress} OF ${hud.target} TEAM ELIMINATIONS` : selectedMissionMeta.id === "intel" ? `${hud.progress} OF ${hud.target} DATA DRIVES` : `${Math.floor(hud.progress)} OF ${hud.target} SECONDS HELD`}</small></div>
@@ -3551,6 +3750,12 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             <h1>{intro ? <>{selectedMissionMeta.name.split(" ")[0]}<br /><em>operation.</em></> : phase === "paused" ? <>Naka-pause ang<br /><em>mission.</em></> : phase === "complete" ? <>Objective<br /><em>complete.</em></> : <>Mission<br /><em>failed.</em></>}</h1>
             <p>{intro ? `${selectedMapMeta.name}: ${selectedMissionMeta.description} Kasama mo agad ang tatlong AI squadmates; maaari ring makalaro ang hanggang pitong online operator.` : phase === "paused" ? "Naka-hinto ang operasyon. Bumalik sa mission kapag handa ka na." : phase === "complete" ? `Natapos ng team ang objective. ${hud.kills} hostile ang na-neutralize at ${accuracyLabel} ang accuracy mo.` : `Hindi natapos ang mission. ${hud.kills} hostile ang na-neutralize.`}</p>
             <div className="briefing-data"><div><span>DEPLOYMENT</span><b>{selectedMapMeta.name}</b></div><div><span>MISSION</span><b>{selectedMissionMeta.name}</b></div><div><span>TIME LIMIT</span><b>{String(Math.floor(selectedMissionMeta.seconds / 60)).padStart(2, "0")} MIN</b></div></div>
+            <div className="touch-briefing">
+              <div><kbd>STICK</kbd><small>MOVE</small></div>
+              <div><kbd>SWIPE</kbd><small>LOOK AROUND</small></div>
+              <div><kbd>FIRE / AIM</kbd><small>HOLD TO USE</small></div>
+              <div><kbd>PICKUP / VEH</kbd><small>LOOT OR BOARD</small></div>
+            </div>
             <div className="control-guide">
               <div><span className="key-cluster"><kbd>W</kbd><span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><small>MOVE</small></div>
               <div><kbd className="key-wide">SHIFT</kbd><small>SPRINT</small></div>
@@ -3564,7 +3769,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             <div className="mission-actions">
               <button className="deploy-button" type="button" onClick={() => launchRef.current?.(phase !== "paused")}>{intro ? "DEPLOY TO OPERATION" : phase === "paused" ? "IPAGPATULOY ANG MISSION" : phase === "complete" ? "ULITIN ANG MISSION" : "SUBUKAN MULI"}<span>↗</span></button>
               {onBackToMaps && <button className="mission-map-button" type="button" onClick={onBackToMaps}>PALITAN ANG MAPA</button>}
-              <small>ESC TO PAUSE <i /> DESKTOP CONTROLS RECOMMENDED</small>
+              <small>{touchControlsEnabled ? "TOUCH CONTROLS READY" : "ESC TO PAUSE · DESKTOP CONTROLS"}</small>
             </div>
           </section>
           <div className="overlay-coordinates"><span>14°35' N</span><i /><span>120°58' E</span><i /><span>06:40:12</span></div>
@@ -3618,7 +3823,7 @@ function LoginPage({ onAuthenticated }) {
       if (!response.ok) throw new Error(result.error || "Hindi natuloy ang login.");
       onAuthenticated(result.user);
     } catch (authError) {
-      setError(authError instanceof TypeError ? "Hindi makakonekta sa game server. Buksan ang site sa localhost o simulan muli ang server." : authError.message || "Hindi natuloy ang login. Subukan ulit.");
+      setError(authError instanceof TypeError ? "Hindi makakonekta sa game server. Suriin ang internet at buksan muli ang site." : authError.message || "Hindi natuloy ang login. Subukan ulit.");
     } finally { setBusy(false); }
   };
   const submit = (event) => {
@@ -3694,13 +3899,13 @@ function LoginPage({ onAuthenticated }) {
         <p className="login-intro">{creating ? "Gumawa ng account para maglaro sa alinmang device na may access sa server." : "Mag-sign in para bumalik sa campaign at makasama ang ibang operators."}</p>
         <form className="login-form" onSubmit={submit}>
           <label htmlFor="operator-name">OPERATOR USERNAME</label>
-          <input id="operator-name" type="text" autoComplete="username" minLength={3} maxLength={24} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Ilagay ang username" required />
+          <input id="operator-name" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} minLength={3} maxLength={24} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Ilagay ang username" required />
           <label htmlFor="operator-password">PASSWORD</label>
           <div className="login-password-wrap"><input id="operator-password" type={showPassword ? "text" : "password"} autoComplete={creating ? "new-password" : "current-password"} minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Hindi bababa sa 8 character" required /><button type="button" className="password-peek" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? "Itago ang password" : "Ipakita ang password"}>{showPassword ? "HIDE" : "SHOW"}</button></div>
           {error && <p className="login-error" role="alert">{error}</p>}
           <button className="login-submit" type="submit" disabled={busy}>{busy ? "SANDALI…" : creating ? "GUMAWA NG ACCOUNT" : "MAG-LOG IN"}<span>→</span></button>
         </form>
-        <button className="login-mode-toggle" type="button" onClick={() => { setError(""); setMode(creating ? "login" : "create"); }}>{creating ? "May account ka na? Mag-log in" : "Bagong operator? Gumawa ng account"}</button>
+        <button className="login-mode-toggle" type="button" onClick={() => { setError(""); setMode(creating ? "login" : "create"); }}>{creating ? "MAY ACCOUNT KA NA? MAG-LOG IN" : "CREATE YOUR ACCOUNT · GUMAWA NG ACCOUNT"}</button>
         <button className="demo-login-button" type="button" onClick={demoLogin} disabled={busy}><span>TRY THE CO-OP DEMO</span><b>demo <i>/</i> JacobDemo2026!</b><small>MAGLARO AGAD SA DEMO ACCOUNT</small></button>
         <div className="login-divider"><span>ACCESS DETAILS</span></div>
         <p className="login-local-note">Server-side scrypt password hash at HttpOnly session. Gumamit ng localhost o HTTPS para sa personal account. Pampublikong demo lang ang demo login.</p>
