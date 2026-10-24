@@ -3035,15 +3035,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     let renderSamples = 0;
     let renderTimeTotal = 0;
     let lastRenderScale = renderScale;
-    let lastRenderTimestamp = 0;
-    const targetFrameDuration = 1000 / 60;
-    const animate = (timestamp) => {
+    const animate = () => {
       if (disposed) return;
-      if (lastRenderTimestamp && timestamp - lastRenderTimestamp < targetFrameDuration - 0.5) {
-        animationId = requestAnimationFrame(animate);
-        return;
-      }
-      lastRenderTimestamp = timestamp;
       const frameDelta = clock.getDelta();
       const delta = Math.min(frameDelta, 0.04);
       renderTimeTotal += Math.min(frameDelta, 0.12) * 1000;
