@@ -2141,6 +2141,10 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     rifleModel.scale.setScalar(0.48);
     const ak47Model = cloneAK47();
     ak47Model.scale.setScalar(0.62);
+    // The player pickup view uses the opposite local forward axis from the
+    // dropped/enemy AK meshes. Rotate only this first-person copy so its muzzle
+    // points out from the camera while the magazine stays below the receiver.
+    ak47Model.rotation.y = Math.PI;
     ak47Model.visible = false;
     baseWeapon.add(ak47Model);
     let akMagazineMesh = ak47Model.userData.detachableMagazine;
@@ -2205,7 +2209,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     pistolModel.position.set(0.182, -0.051, -0.282);
     pistolModel.scale.setScalar(0.24);
     const pistolEffects = buildWeaponEffects(pistolModel, [0.2, -0.06, -0.94], [0.35, -0.03, -0.56]);
-    const ak47Effects = buildWeaponEffects(ak47Model, [0, 0.01, -0.95], [0.1, 0.01, -0.08]);
+    const ak47Effects = buildWeaponEffects(ak47Model, [0, 0.01, 0.95], [-0.1, 0.01, 0.08]);
+    ak47Effects.flash.rotation.y = Math.PI;
     const weaponEffects = { m4: rifleEffects, glock: pistolEffects, ak47: ak47Effects };
     let muzzleFlash = rifleEffects.flash;
     let muzzleLight = rifleEffects.light;
