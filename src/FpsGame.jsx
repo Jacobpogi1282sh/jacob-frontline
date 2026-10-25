@@ -618,9 +618,9 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     }
 
     const lowPowerDevice = touchDevice || (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 4;
-    let renderScale = lowPowerDevice ? 0.68 : 0.82;
+    let renderScale = lowPowerDevice ? 0.72 : 0.82;
     const minimumRenderScale = lowPowerDevice ? 0.48 : 0.56;
-    const maximumRenderScale = lowPowerDevice ? 0.8 : 0.98;
+    const maximumRenderScale = lowPowerDevice ? 0.92 : 0.98;
     const updateRenderResolution = () => {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1 : 1.2) * renderScale);
       renderer.setSize(mount.clientWidth, mount.clientHeight, false);
@@ -660,6 +660,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     scene.add(camera);
 
     const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+    const textureAnisotropy = Math.min(maxAnisotropy, lowPowerDevice ? 4 : 8);
     const textures = {
       grass: createTextureMaterial(activeMap.id === "port" ? "concrete" : "grass", 213, { repeatX: 18, repeatY: 18, tint: activeMap.groundTint, roughness: 1 }),
       road: createTextureMaterial("road", 852, { repeatX: 2, repeatY: 18, tint: activeMap.roadTint, roughness: 0.96 }),
@@ -674,7 +675,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       metal: createTextureMaterial("metal", 774, { repeatX: 1, repeatY: 1, metalness: 0.46, roughness: 0.58 }),
       glass: new THREE.MeshStandardMaterial({ color: 0x36504c, metalness: 0.5, roughness: 0.22, emissive: 0x1b3028, emissiveIntensity: 0.85 }),
     };
-    Object.values(textures).forEach((material) => { if (material.map) material.map.anisotropy = maxAnisotropy; });
+    Object.values(textures).forEach((material) => { if (material.map) material.map.anisotropy = textureAnisotropy; });
 
     const containerMaterials = activeMap.containers ? [
       new THREE.MeshStandardMaterial({ color: 0x566b64, metalness: 0.5, roughness: 0.76 }),
@@ -2048,6 +2049,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     let remainingSeconds = selectedMissionMeta.seconds;
     let roundStartedAt = 0;
     let phaseValue = "ready";
+    let lastTacticalUpdate = 0;
     let pointerLocked = false;
     let reloading = false;
     const ammoBoxUsed = new Set();
@@ -3078,6 +3080,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       } else {
         roundStartedAt = performance.now() - elapsedSeconds * 1000;
       }
+      lastTacticalUpdate = performance.now();
       changePhase("playing");
       clearTouchInput();
       if (!touchControlsRef.current) requestLock();
@@ -3163,8 +3166,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       renderSamples += 1;
       if (renderSamples >= 30) {
         const averageFrameTime = renderTimeTotal / renderSamples;
-        if (averageFrameTime > 20 && renderScale > minimumRenderScale) renderScale = Math.max(minimumRenderScale, renderScale - 0.085);
-        else if (averageFrameTime < 16.2 && renderScale < maximumRenderScale) renderScale = Math.min(maximumRenderScale, renderScale + 0.035);
+        if (averageFrameTime > 18.5 && renderScale > minimumRenderScale) renderScale = Math.max(minimumRenderScale, renderScale - 0.085);
+        else if (averageFrameTime < 15.8 && renderScale < maximumRenderScale) renderScale = Math.min(maximumRenderScale, renderScale + 0.03);
         if (renderScale !== lastRenderScale) {
           lastRenderScale = renderScale;
           updateRenderResolution();
@@ -3174,6 +3177,19 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       }
       const now = performance.now();
       const elapsed = clock.elapsedTime;
+      let tacticalDelta = delta;
+      let updateTacticalAI = true;
+      if (touchDevice) {
+        if (phaseValue !== "playing") lastTacticalUpdate = now;
+        else {
+          const tacticalElapsed = now - lastTacticalUpdate;
+          updateTacticalAI = tacticalElapsed >= 1000 / 30;
+          if (updateTacticalAI) {
+            tacticalDelta = Math.min(tacticalElapsed / 1000, 0.06);
+            lastTacticalUpdate = now;
+          }
+        }
+      }
       if (networkSocket?.readyState === WebSocket.OPEN && now - lastNetworkSync > 100) {
         const touchMoving = Math.hypot(touchInputRef.current.moveX, touchInputRef.current.moveY) > 0.06;
         const movingNow = phaseValue === "playing" && (keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD") || touchMoving);
@@ -3392,7 +3408,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           if (now > enemy.userData.deadAt && !enemy.userData.cleaned) { scene.remove(enemy); enemy.userData.cleaned = true; }
           continue;
         }
-        if (phaseValue === "playing") {
+        if (phaseValue === "playing" && updateTacticalAI) {
           const dx = camera.position.x - enemy.position.x;
           const dz = camera.position.z - enemy.position.z;
           const distance = Math.max(0.1, Math.hypot(dx, dz));
@@ -3400,11 +3416,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
           const approach = distance > 8.5;
           const strafe = Math.sin(elapsed * 0.65 + enemy.userData.phase) * 0.16;
           if (approach) {
-            enemy.position.x += (dx / distance) * 1.05 * delta;
-            enemy.position.z += (dz / distance) * 1.05 * delta;
+            enemy.position.x += (dx / distance) * 1.05 * tacticalDelta;
+            enemy.position.z += (dz / distance) * 1.05 * tacticalDelta;
           } else {
-            enemy.position.x += (dx / distance * 0.22 + strafe) * delta;
-            enemy.position.z += (dz / distance * 0.22) * delta;
+            enemy.position.x += (dx / distance * 0.22 + strafe) * tacticalDelta;
+            enemy.position.z += (dz / distance * 0.22) * tacticalDelta;
           }
           enemy.position.x = THREE.MathUtils.clamp(enemy.position.x, -42, 42);
           enemy.position.z = THREE.MathUtils.clamp(enemy.position.z, -210, 30);
@@ -3454,7 +3470,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         if (now > (enemy.userData.muzzleOffAt || 0)) enemy.userData.muzzle.intensity = 0;
       }
 
-      if (phaseValue === "playing") updateSquadAI(delta, now, elapsed);
+      if (phaseValue === "playing" && updateTacticalAI) updateSquadAI(tacticalDelta, now, elapsed);
       if (now > apc.userData.cannonFlashOffAt) apc.userData.cannonFlash.intensity = 0;
       apc.userData.cannon.position.z = THREE.MathUtils.lerp(apc.userData.cannon.position.z, apc.userData.cannonHomePosition.z, 1 - Math.exp(-delta * 22));
       if (activeVehicle !== helicopter) {
@@ -3669,6 +3685,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             onPointerCancel={endTouchLook}
             onLostPointerCapture={endTouchLook}
           />
+          <div className="touch-look-hint" aria-hidden="true">SWIPE TO LOOK</div>
           <div
             className="touch-stick-zone"
             role="group"
@@ -4015,17 +4032,21 @@ function MapSelectionPage({ playerName, selectedMap, selectedMission, onSelectMa
         <div className="map-select-account"><span>OPERATOR <b>{playerName}</b></span><button type="button" onClick={onLogout}>SIGN OUT</button></div>
       </header>
       <section className="map-select-content">
-        <div className="map-select-intro"><div><span className="map-select-kicker"><i /> CO-OP OPERATIONS / QUICK MATCH</span><h1>CHOOSE YOUR<br /><em>DEPLOYMENT.</em></h1><p>Pumili ng lugar at mission. May tatlong squadmates ka kahit wala pang online na operator.</p></div><div className="map-select-coordinates"><span>ACTIVE OPERATOR</span><b>{playerName.toUpperCase()}</b><small>3 SQUADMATES / UP TO 8 ONLINE OPERATORS</small></div></div>
-        <div className="map-cards">
-          {Object.values(MAPS).map((map) => (
-            <button key={map.id} type="button" className={`map-card map-card-${map.id}${selectedMap === map.id ? " selected" : ""}`} onClick={() => onSelectMap(map.id)} aria-pressed={selectedMap === map.id}>
-              <div className="map-card-art" aria-hidden="true"><div className="map-art-sky" /><div className="map-art-ridge map-art-ridge-one" /><div className="map-art-ridge map-art-ridge-two" /><div className="map-art-road" /><div className="map-art-scan" /><span className="map-art-marker">{map.code}</span><small>{map.mood}</small></div>
-              <div className="map-card-copy"><span>{map.code} / {map.region}</span><b>{map.name}</b><p>{map.description}</p><small>{selectedMap === map.id ? "SELECTED LOCATION" : "SELECT TO PREVIEW"}</small></div>
-            </button>
-          ))}
+        <div className="map-select-scroll">
+          <div className="map-select-scroll-inner">
+            <div className="map-select-intro"><div><span className="map-select-kicker"><i /> CO-OP OPERATIONS / QUICK MATCH</span><h1>CHOOSE YOUR<br /><em>DEPLOYMENT.</em></h1><p>Pumili ng lugar at mission, pagkatapos pindutin ang start button sa ibaba. May tatlong squadmates ka kahit wala pang online na operator.</p></div><div className="map-select-coordinates"><span>ACTIVE OPERATOR</span><b>{playerName.toUpperCase()}</b><small>3 SQUADMATES / UP TO 8 ONLINE OPERATORS</small></div></div>
+            <div className="map-cards">
+              {Object.values(MAPS).map((map) => (
+                <button key={map.id} type="button" className={`map-card map-card-${map.id}${selectedMap === map.id ? " selected" : ""}`} onClick={() => onSelectMap(map.id)} aria-pressed={selectedMap === map.id}>
+                  <div className="map-card-art" aria-hidden="true"><div className="map-art-sky" /><div className="map-art-ridge map-art-ridge-one" /><div className="map-art-ridge map-art-ridge-two" /><div className="map-art-road" /><div className="map-art-scan" /><span className="map-art-marker">{map.code}</span><small>{map.mood}</small></div>
+                  <div className="map-card-copy"><span>{map.code} / {map.region}</span><b>{map.name}</b><p>{map.description}</p><small>{selectedMap === map.id ? "SELECTED LOCATION" : "SELECT TO PREVIEW"}</small></div>
+                </button>
+              ))}
+            </div>
+            <section className="mission-select-section"><div className="mission-select-heading"><span>OPERATION BOARD</span><small>3 MISSIONS / SHARED MATCHMAKING</small></div><div className="mission-select-grid">{Object.values(MISSIONS).map((mission, index) => <button key={mission.id} type="button" className={`mission-choice${selectedMission === mission.id ? " selected" : ""}`} onClick={() => onSelectMission(mission.id)} aria-pressed={selectedMission === mission.id}><span>OPERATION 0{index + 1} / {Math.floor(mission.seconds / 60)} MIN</span><b>{mission.name}</b><p>{mission.description}</p><small>{selectedMission === mission.id ? "SELECTED OPERATION" : mission.objective}</small></button>)}</div></section>
+          </div>
         </div>
-        <section className="mission-select-section"><div className="mission-select-heading"><span>OPERATION BOARD</span><small>3 MISSIONS / SHARED MATCHMAKING</small></div><div className="mission-select-grid">{Object.values(MISSIONS).map((mission, index) => <button key={mission.id} type="button" className={`mission-choice${selectedMission === mission.id ? " selected" : ""}`} onClick={() => onSelectMission(mission.id)} aria-pressed={selectedMission === mission.id}><span>OPERATION 0{index + 1} / {Math.floor(mission.seconds / 60)} MIN</span><b>{mission.name}</b><p>{mission.description}</p><small>{selectedMission === mission.id ? "SELECTED OPERATION" : mission.objective}</small></button>)}</div></section>
-        <footer className="map-select-footer"><div><span>DEPLOYMENT / OPERATION</span><b>{currentMap.name} / {currentMission.name}</b><small>{currentMap.region} / {currentMission.objective}</small></div><button type="button" className="map-deploy-button" onClick={() => onDeploy(selectedMap, selectedMission)}>DEPLOY TO {currentMap.name}<span>→</span></button></footer>
+        <footer className="map-select-footer"><div aria-live="polite"><span>DEPLOYMENT / OPERATION</span><b>{currentMap.name} / {currentMission.name}</b><small>{currentMap.region} / {currentMission.objective}</small></div><button type="button" className="map-deploy-button" onClick={() => onDeploy(selectedMap, selectedMission)}>START MISSION: {currentMap.name}<span>→</span></button></footer>
       </section>
       <div className="map-select-bottomline"><span>JACOB: FRONTLINE <i /> CO-OP FIELD OPERATIONS</span><span>3 AI SQUADMATES <i /> UP TO 8 ONLINE OPERATORS</span></div>
     </main>
