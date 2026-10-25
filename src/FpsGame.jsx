@@ -511,13 +511,13 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
   const soundRef = useRef(true);
   const [touchControlsEnabled, setTouchControlsEnabled] = useState(false);
   const touchControlsRef = useRef(false);
-  const touchInputRef = useRef({ moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, jump: false, vehicleUp: false, vehicleDown: false });
+  const touchInputRef = useRef({ moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, crouch: false, jump: false, vehicleUp: false, vehicleDown: false });
   const touchActionsRef = useRef({});
   const joystickPointerRef = useRef(null);
   const lookPointerRef = useRef(null);
 
   const clearTouchInput = () => {
-    Object.assign(touchInputRef.current, { moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, jump: false, vehicleUp: false, vehicleDown: false });
+    Object.assign(touchInputRef.current, { moveX: 0, moveY: 0, fire: false, aim: false, sprint: false, crouch: false, jump: false, vehicleUp: false, vehicleDown: false });
     joystickPointerRef.current = null;
     lookPointerRef.current = null;
     const thumb = stageRef.current?.querySelector(".touch-stick-thumb");
@@ -618,11 +618,15 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
     }
 
     const lowPowerDevice = touchDevice || (navigator.hardwareConcurrency || 4) <= 4 || (navigator.deviceMemory || 4) <= 4;
-    let renderScale = lowPowerDevice ? 0.72 : 0.82;
-    const minimumRenderScale = lowPowerDevice ? 0.48 : 0.56;
-    const maximumRenderScale = lowPowerDevice ? 0.92 : 0.98;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const renderPixelRatioCap = touchDevice
+      ? Math.max(1, Math.min(devicePixelRatio, 1.5))
+      : Math.min(devicePixelRatio, lowPowerDevice ? 1 : 1.2);
+    let renderScale = touchDevice ? Math.min(1, 1.1 / renderPixelRatioCap) : 0.82;
+    const minimumRenderScale = touchDevice ? 1 / renderPixelRatioCap : lowPowerDevice ? 0.48 : 0.56;
+    const maximumRenderScale = touchDevice ? Math.min(1, 1.25 / renderPixelRatioCap) : lowPowerDevice ? 0.92 : 0.98;
     const updateRenderResolution = () => {
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPowerDevice ? 1 : 1.2) * renderScale);
+      renderer.setPixelRatio(renderPixelRatioCap * renderScale);
       renderer.setSize(mount.clientWidth, mount.clientHeight, false);
     };
     updateRenderResolution();
@@ -2993,6 +2997,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       pickup: resupply,
       vehicle: interactVehicle,
       swapWeapon: () => setWeapon(weaponMode === "m4" ? "glock" : weaponMode === "glock" && hasAk47 ? "ak47" : "m4"),
+      pause: () => pauseGame(),
     };
     const updateDefenseZone = (delta, now) => {
       if (selectedMissionMeta.id !== "defense" || !defenseZone || phaseValue !== "playing") return;
@@ -3166,8 +3171,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
       renderSamples += 1;
       if (renderSamples >= 30) {
         const averageFrameTime = renderTimeTotal / renderSamples;
-        if (averageFrameTime > 18.5 && renderScale > minimumRenderScale) renderScale = Math.max(minimumRenderScale, renderScale - 0.085);
-        else if (averageFrameTime < 15.8 && renderScale < maximumRenderScale) renderScale = Math.min(maximumRenderScale, renderScale + 0.03);
+        if (averageFrameTime > 19.5 && renderScale > minimumRenderScale) renderScale = Math.max(minimumRenderScale, renderScale - 0.06);
+        else if (averageFrameTime < 17.2 && renderScale < maximumRenderScale) renderScale = Math.min(maximumRenderScale, renderScale + 0.025);
         if (renderScale !== lastRenderScale) {
           lastRenderScale = renderScale;
           updateRenderResolution();
@@ -3210,7 +3215,7 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
         const controlsActive = pointerLocked || touchControlsRef.current;
         const movementAmount = Math.min(1, Math.hypot(forwardInput, sideInput));
         const sprinting = keys.has("ShiftLeft") || keys.has("ShiftRight") || touchInput.sprint;
-        const crouching = keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC");
+        const crouching = keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC") || touchInput.crouch;
         const moving = movementAmount > 0.06;
         const isSprinting = moving && sprinting && stamina > 3 && !crouching;
         if (isSprinting) { stamina = Math.max(0, stamina - 31 * delta); staminaRefillDelay = 0.75; }
@@ -3636,6 +3641,9 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
   const accuracyLabel = `${hud.accuracy}%`;
   const intro = phase === "ready";
   const closed = phase === "complete" || phase === "failed";
+  const touchCanUse = Boolean(hud.nearWeapon || hud.nearIntel || hud.nearSupply);
+  const touchInHelicopter = hud.vehicleLabel.includes("HELI");
+  const touchInVehicle = Boolean(hud.vehicleLabel && !hud.vehicleLabel.startsWith("BOARD"));
 
   return (
     <div className={touchControlsEnabled ? "operation-shell touch-game" : "operation-shell"}>
@@ -3685,7 +3693,6 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             onPointerCancel={endTouchLook}
             onLostPointerCapture={endTouchLook}
           />
-          <div className="touch-look-hint" aria-hidden="true">SWIPE TO LOOK</div>
           <div
             className="touch-stick-zone"
             role="group"
@@ -3699,8 +3706,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
             <span className="touch-stick-label">MOVE</span>
             <i className="touch-stick-thumb" />
           </div>
-          <div className="touch-action-grid">
-            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "swapWeapon")} aria-label="Palitan ang armas">SWAP</button>
+          <div className="touch-action-cluster">
+            <button type="button" className="touch-action-button touch-action-pause" onClick={(event) => runTouchAction(event, "pause")} aria-label="I-pause ang laro">Ⅱ</button>
+            {!touchInVehicle && <button type="button" className="touch-action-button touch-action-sprint" onPointerDown={(event) => beginTouchHold(event, "sprint")} onPointerUp={(event) => endTouchHold(event, "sprint")} onPointerCancel={(event) => endTouchHold(event, "sprint")} onLostPointerCapture={(event) => endTouchHold(event, "sprint")} aria-label="Pindutin at hawakan para tumakbo"><span className="touch-action-glyph">»</span><small>RUN</small></button>}
+            {!touchInVehicle && <button type="button" className="touch-action-button touch-action-crouch" onPointerDown={(event) => beginTouchHold(event, "crouch")} onPointerUp={(event) => endTouchHold(event, "crouch")} onPointerCancel={(event) => endTouchHold(event, "crouch")} onLostPointerCapture={(event) => endTouchHold(event, "crouch")} aria-label="Pindutin at hawakan para yumuko"><span className="touch-action-glyph">⌄</span><small>CROUCH</small></button>}
+            <button type="button" className="touch-action-button touch-action-swap" onClick={(event) => runTouchAction(event, "swapWeapon")} aria-label="Palitan ang armas"><span className="touch-action-glyph">⇄</span><small>SWAP</small></button>
             <button
               type="button"
               className="touch-action-button touch-action-aim"
@@ -3709,11 +3719,11 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
               onPointerCancel={(event) => endTouchHold(event, "aim")}
               onLostPointerCapture={(event) => endTouchHold(event, "aim")}
               aria-label="Pindutin at hawakan para mag-aim"
-            >AIM</button>
-            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "reload")} aria-label="Mag-reload">RELOAD</button>
-            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "pickup")} aria-label="Pumulot o mag-resupply">PICKUP</button>
-            <button type="button" className="touch-action-button" onClick={(event) => runTouchAction(event, "vehicle")} aria-label="Sumakay o bumaba sa sasakyan">VEH</button>
-            <button
+            ><span className="touch-action-glyph">◎</span><small>AIM</small></button>
+            <button type="button" className="touch-action-button touch-action-reload" onClick={(event) => runTouchAction(event, "reload")} aria-label="Mag-reload"><span className="touch-action-glyph">↻</span><small>RELOAD</small></button>
+            {touchCanUse && <button type="button" className="touch-action-button touch-action-use" onClick={(event) => runTouchAction(event, "pickup")} aria-label="Pumulot o mag-resupply"><span className="touch-action-glyph">↓</span><small>USE</small></button>}
+            {hud.vehicleLabel && <button type="button" className="touch-action-button touch-action-vehicle" onClick={(event) => runTouchAction(event, "vehicle")} aria-label="Sumakay o bumaba sa sasakyan"><span className="touch-action-glyph">◇</span><small>{hud.vehicleLabel.startsWith("BOARD") ? "ENTER" : "EXIT"}</small></button>}
+            {(!touchInVehicle || touchInHelicopter) && <button
               type="button"
               className="touch-action-button touch-action-jump"
               onPointerDown={(event) => beginTouchHold(event, "jump")}
@@ -3721,25 +3731,16 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
               onPointerCancel={(event) => endTouchHold(event, "jump")}
               onLostPointerCapture={(event) => endTouchHold(event, "jump")}
               aria-label="Tumalon o paakyatin ang helicopter"
-            >JUMP/UP</button>
-            <button
+            ><span className="touch-action-glyph">↑</span><small>{touchInHelicopter ? "UP" : "JUMP"}</small></button>}
+            {touchInHelicopter && <button
               type="button"
-              className="touch-action-button"
-              onPointerDown={(event) => beginTouchHold(event, "sprint")}
-              onPointerUp={(event) => endTouchHold(event, "sprint")}
-              onPointerCancel={(event) => endTouchHold(event, "sprint")}
-              onLostPointerCapture={(event) => endTouchHold(event, "sprint")}
-              aria-label="Pindutin at hawakan para tumakbo"
-            >RUN</button>
-            <button
-              type="button"
-              className="touch-action-button"
+              className="touch-action-button touch-action-down"
               onPointerDown={(event) => beginTouchHold(event, "vehicleDown")}
               onPointerUp={(event) => endTouchHold(event, "vehicleDown")}
               onPointerCancel={(event) => endTouchHold(event, "vehicleDown")}
               onLostPointerCapture={(event) => endTouchHold(event, "vehicleDown")}
               aria-label="Ibaba ang helicopter"
-            >DOWN</button>
+            ><span className="touch-action-glyph">↓</span><small>DOWN</small></button>}
             <button
               type="button"
               className="touch-action-button touch-action-fire"
@@ -3748,9 +3749,8 @@ function FpsArena({ playerName, onLogout, mapId = "barangay", missionId = "assau
               onPointerCancel={(event) => endTouchHold(event, "fire")}
               onLostPointerCapture={(event) => endTouchHold(event, "fire")}
               aria-label="Pindutin at hawakan para bumaril"
-            >FIRE</button>
+            ><span className="touch-action-glyph">●</span><small>FIRE</small></button>
           </div>
-          <span className="touch-look-hint">SWIPE TO LOOK</span>
         </div>}
 
         <div className="combat-bottomline">
