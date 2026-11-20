@@ -3926,6 +3926,7 @@ function LoginPage({ onAuthenticated }) {
         <button className="demo-login-button" type="button" onClick={demoLogin} disabled={busy}><span>TRY THE CO-OP DEMO</span><b>demo <i>/</i> JacobDemo2026!</b><small>MAGLARO AGAD SA DEMO ACCOUNT</small></button>
         <div className="login-divider"><span>ACCESS DETAILS</span></div>
         <p className="login-local-note">Server-side scrypt password hash at HttpOnly session. Gumamit ng localhost o HTTPS para sa personal account. Pampublikong demo lang ang demo login.</p>
+        <a className="login-creator-link" href="/jacob-v-urbano/">ABOUT THE CREATOR <span>JACOB V. URBANO</span><b aria-hidden="true">↗</b></a>
       </section>
       <div className="login-side-note"><span>SECTOR 04 <i /> SAN ISIDRO</span><b>MISSION ACCESS<br />RESTRICTED</b><small>TACTICAL TRAINING · FIRETEAM / ONLINE CO-OP</small></div>
       </div>

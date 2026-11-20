@@ -755,6 +755,10 @@ button { font: inherit; }
 .login-divider::before,
 .login-divider::after { background: rgba(230, 239, 255, .16); }
 .login-local-note { color: rgba(215, 225, 239, .56); }
+.login-creator-link { display: flex; align-items: center; gap: 8px; width: fit-content; margin-top: 15px; color: rgba(210, 221, 238, .56); font-family: "DM Mono", monospace; font-size: 7px; letter-spacing: .1em; transition: color .18s ease; }
+.login-creator-link span { color: #d6d5ff; }
+.login-creator-link b { color: #c7c9ff; font-size: 12px; font-weight: 400; }
+.login-creator-link:hover { color: #fff; }
 .login-side-note { display: none; }
 
 @keyframes glass-orb-drift {
